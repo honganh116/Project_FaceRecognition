@@ -1,0 +1,15 @@
+# Environments
+.env
+.venv
+env/
+venv/
+__pycache__/
+
+# Node/Frontend
+node_modules/
+build/
+dist/
+
+# Database & Storage (Local)
+db_data/
+minio_data/
