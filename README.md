@@ -4,7 +4,10 @@
 - Môn học: Kỹ nghệ hệ thống TTNT
 - Use case lựa chọn: Nhận diện khuôn mặt thời gian thực (Trường hợp ...)
 - Thành viên: 
-  - [Tên bạn] - [MSSV]
+  - Nguyễn Hồng Anh - 24022255
+  - Phạm Gia Bảo - 24022267
+  - Đào Gia Thế Vũ - 24022491
+  - Nguyễn Đức Bình - 24022269
 
 ## Công nghệ sử dụng
 - Backend: FastAPI, DeepFace, Python
