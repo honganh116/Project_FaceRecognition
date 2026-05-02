@@ -3,3 +3,4 @@ uvicorn==0.29.0
 deepface==0.0.86
 opencv-python-headless==4.9.0.80
 python-multipart==0.0.9
+tf-keras
