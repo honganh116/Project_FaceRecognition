@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import numpy as np #
 
 # Tên file cơ sở dữ liệu sẽ tự động được tạo
 DB_FILE = "face_database.db"
@@ -36,3 +37,42 @@ def register_user(name, student_code, embedding_vector):
         return False, "Lỗi: Mã sinh viên này đã tồn tại trong hệ thống!"
     finally:
         conn.close()
+        
+def cosine_distance(vec1, vec2):
+    """Hàm toán học tính khoảng cách giữa 2 khuôn mặt"""
+    vec1 = np.array(vec1)
+    vec2 = np.array(vec2)
+    return 1 - np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+def find_match_in_db(target_embedding, threshold=0.40):
+    """Lục tìm khuôn mặt giống nhất trong Database. 
+    Với model Facenet, khoảng cách < 0.40 được coi là cùng 1 người."""
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, student_code, embedding FROM users")
+    rows = cursor.fetchall()
+    conn.close()
+
+    best_match = None
+    min_distance = float('inf')
+
+    # Duyệt qua từng người trong DB để so sánh
+    for row in rows:
+        name = row[0]
+        student_code = row[1]
+        db_embedding = json.loads(row[2]) # Giải mã chuỗi JSON thành mảng số
+
+        # Đo khoảng cách
+        dist = cosine_distance(target_embedding, db_embedding)
+
+        # Cập nhật nếu tìm thấy khoảng cách nhỏ hơn
+        if dist < min_distance:
+            min_distance = dist
+            best_match = {"name": name, "student_code": student_code}
+
+    # Nếu khoảng cách của người giống nhất vẫn nhỏ hơn ngưỡng cho phép (0.40) -> Nhận diện thành công
+    if best_match and min_distance <= threshold:
+        return True, best_match, min_distance
+    else:
+        return False, None, min_distance

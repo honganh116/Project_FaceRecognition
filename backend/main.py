@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, Form
-from database import init_db, register_user
+from database import init_db, register_user, find_match_in_db
 from deepface import DeepFace
 import cv2
 import numpy as np
@@ -102,5 +102,42 @@ async def register_face(
 
     except ValueError:
         return {"error": "Không tìm thấy khuôn mặt trong ảnh. Vui lòng thử ảnh rõ mặt hơn!"}
+    except Exception as e:
+        return {"error": f"Lỗi hệ thống: {str(e)}"}
+
+@app.post("/api/recognize")
+async def recognize_face(file: UploadFile = File(...)):
+    try:
+        # 1. Đọc ảnh tải lên
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # 2. Rút trích Vector (Vẫn xài mắt thần mtcnn nhé)
+        results = DeepFace.represent(
+            img_path=img, 
+            model_name="Facenet", 
+            detector_backend="mtcnn", 
+            enforce_detection=True
+        )
+        target_embedding = results[0]["embedding"]
+
+        # 3. Đem vector đi so sánh với DB
+        found, match_info, distance = find_match_in_db(target_embedding)
+
+        if found:
+            return {
+                "message": "Xin chào người quen!",
+                "user": match_info, # In ra Tên và Mã SV tìm được
+                "distance": round(distance, 4) # Khoảng cách càng nhỏ càng giống
+            }
+        else:
+            return {
+                "message": "Cảnh báo: Phát hiện người lạ!",
+                "distance": round(distance, 4) if distance != float('inf') else None
+            }
+
+    except ValueError:
+        return {"error": "Không tìm thấy khuôn mặt trong ảnh!"}
     except Exception as e:
         return {"error": f"Lỗi hệ thống: {str(e)}"}
