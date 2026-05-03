@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db, register_user, find_match_in_db
+from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs
 from deepface import DeepFace
 import cv2
 import numpy as np
@@ -135,6 +135,8 @@ async def recognize_face(file: UploadFile = File(...)):
         found, match_info, distance = find_match_in_db(target_embedding)
 
         if found:
+            log_attendance(match_info["name"], match_info["student_code"])
+
             return {
                 "message": "Xin chào người quen!",
                 "user": match_info, # In ra Tên và Mã SV tìm được
@@ -150,3 +152,12 @@ async def recognize_face(file: UploadFile = File(...)):
         return {"error": "Không tìm thấy khuôn mặt trong ảnh!"}
     except Exception as e:
         return {"error": f"Lỗi hệ thống: {str(e)}"}
+    
+@app.get("/api/logs")
+def view_attendance_logs():
+    logs = get_all_logs()
+    return {
+        "message": "Danh sách điểm danh",
+        "total_records": len(logs),
+        "data": logs
+    }

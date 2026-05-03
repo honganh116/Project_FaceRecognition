@@ -1,6 +1,7 @@
 import sqlite3
 import json
-import numpy as np #
+import datetime
+import numpy as np 
 
 # Tên file cơ sở dữ liệu sẽ tự động được tạo
 DB_FILE = "face_database.db"
@@ -9,6 +10,8 @@ def init_db():
     """Hàm này chạy lần đầu để tạo bảng dữ liệu"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # Bảng 1: Lưu thông tin khuôn mặt (Cũ)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,6 +20,17 @@ def init_db():
             embedding TEXT NOT NULL
         )
     ''')
+    
+    # Bảng 2: Sổ chấm công (THÊM MỚI)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            student_code TEXT NOT NULL,
+            time_logged TEXT NOT NULL
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -76,3 +90,27 @@ def find_match_in_db(target_embedding, threshold=0.40):
         return True, best_match, min_distance
     else:
         return False, None, min_distance
+    
+def log_attendance(name, student_code):
+    """Ghi nhận thời gian người dùng xuất hiện trước Camera"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    # Lấy ngày giờ hiện tại
+    current_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    
+    cursor.execute('INSERT INTO attendance (name, student_code, time_logged) VALUES (?, ?, ?)',
+                   (name, student_code, current_time))
+    conn.commit()
+    conn.close()
+
+def get_all_logs():
+    """Lấy danh sách 50 lượt chấm công gần nhất"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, student_code, time_logged FROM attendance ORDER BY id DESC LIMIT 50")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Trình bày lại cho đẹp
+    return [{"name": r[0], "student_code": r[1], "time": r[2]} for r in rows]
