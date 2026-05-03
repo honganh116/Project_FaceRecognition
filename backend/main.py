@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
 from database import init_db, register_user, find_match_in_db
 from deepface import DeepFace
 import cv2
@@ -9,6 +10,14 @@ app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
 
 # Khởi tạo Cơ sở dữ liệu ngay khi bật Server (THÊM MỚI)
 init_db() 
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Cho phép mọi trang web gọi vào
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Nhận diện Khuôn mặt Thời gian thực</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f2f5; }
+        #video-container { position: relative; display: inline-block; margin-top: 20px; }
+        video { border: 3px solid #333; border-radius: 10px; width: 640px; height: 480px; background-color: black; }
+        #result-box { 
+            margin-top: 20px; padding: 15px; font-size: 20px; font-weight: bold; 
+            border-radius: 8px; width: 60%; margin-left: auto; margin-right: auto;
+            background-color: white; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .success { color: green; }
+        .warning { color: red; }
+    </style>
+</head>
+<body>
+
+    <h1>Hệ thống Nhận diện Khuôn mặt</h1>
+    
+    <div id="video-container">
+        <!-- Khung chiếu Webcam -->
+        <video id="webcam" autoplay playsinline></video>
+    </div>
+
+    <!-- Nơi hiển thị kết quả -->
+    <div id="result-box">Đang khởi động Camera...</div>
+
+    <!-- Canvas ẩn dùng để chụp ảnh ngầm từ Video -->
+    <canvas id="hidden-canvas" width="640" height="480" style="display:none;"></canvas>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('hidden-canvas');
+        const ctx = canvas.getContext('2d');
+        const resultBox = document.getElementById('result-box');
+
+        // Bật Webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                resultBox.innerHTML = "Camera đã sẵn sàng! Đang quét...";
+                // Cứ 1.5 giây thì tự động chụp ảnh gửi cho AI một lần
+                setInterval(captureAndRecognize, 1500); 
+            })
+            .catch(err => {
+                console.error("Lỗi Webcam:", err);
+                resultBox.innerHTML = "<span class='warning'>Không thể mở Webcam. Vui lòng cấp quyền!</span>";
+            });
+
+        // Hàm chụp ảnh và gửi lên API
+        function captureAndRecognize() {
+            // Vẽ hình từ Webcam vào Canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Chuyển Canvas thành file ảnh (Blob)
+            canvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('file', blob, 'webcam_frame.jpg');
+
+                // Gửi cho Backend
+                fetch('http://localhost:8000/api/recognize', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.user) {
+                        resultBox.innerHTML = `<span class='success'>✅ Xin chào: ${data.user.name} (${data.user.student_code})</span>`;
+                    } else if (data.message.includes("lạ")) {
+                        resultBox.innerHTML = `<span class='warning'>❌ Phát hiện người lạ!</span>`;
+                    } else {
+                        resultBox.innerHTML = "Không tìm thấy khuôn mặt nào...";
+                    }
+                })
+                .catch(error => console.error('Lỗi API:', error));
+            }, 'image/jpeg');
+        }
+    </script>
+</body>
+</html>
