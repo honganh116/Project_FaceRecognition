@@ -48,7 +48,8 @@ cd Project_FaceRecognition
 Yêu cầu: Máy tính đã cài đặt **Docker**.
 Mở Terminal tại thư mục `backend` và chạy lệnh sau:
 
-docker-compose up -d --build
+docker build -t face-backend .
+
 docker run -p 8000:8000 -v ${PWD}:/app face-backend
 
 3. Truy cập các dịch vụ
