@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # 1. Khởi chạy AI Backend
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: face_backend
+    ports:
+      - "8000:8000"
+    # Mount volume để lưu file SQLite (tạm thời) ra ngoài, tránh mất dữ liệu khi tắt container
+    volumes:
+      - ./backend_data:/app
+    restart: always
+
+  # 2. Khởi chạy Giao diện Frontend
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: face_frontend
+    ports:
+      - "3000:80" # Mapping cổng 3000 ở máy thật vào cổng 80 của Nginx trong container
+    depends_on:
+      - backend
+    restart: always
