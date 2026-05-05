@@ -117,41 +117,39 @@ async def register_face(
 @app.post("/api/recognize")
 async def recognize_face(file: UploadFile = File(...)):
     try:
-        # 1. Đọc ảnh tải lên
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 2. Rút trích Vector (Vẫn xài mắt thần mtcnn nhé)
+        # 1. TĂNG TỐC: Đổi detector_backend từ "mtcnn" sang "opencv"
+        # OpenCV dò mặt siêu nhanh, phù hợp cho luồng stream liên tục
         results = DeepFace.represent(
             img_path=img, 
             model_name="Facenet", 
-            detector_backend="mtcnn", 
+            detector_backend="opencv", 
             enforce_detection=True
         )
-        target_embedding = results[0]["embedding"]
 
-        # 3. Đem vector đi so sánh với DB
+        # 2. XỬ LÝ NHIỀU KHUÔN MẶT: Báo lỗi nếu có > 1 người
+        if len(results) > 1:
+            return {
+                "status": "warning", 
+                "message": "Cảnh báo: Phát hiện nhiều khuôn mặt. Vui lòng quét từng người!"
+            }
+
+        target_embedding = results[0]["embedding"]
         found, match_info, distance = find_match_in_db(target_embedding)
 
         if found:
             log_attendance(match_info["name"], match_info["student_code"])
-
-            return {
-                "message": "Xin chào người quen!",
-                "user": match_info, # In ra Tên và Mã SV tìm được
-                "distance": round(distance, 4) # Khoảng cách càng nhỏ càng giống
-            }
+            return {"status": "success", "message": "Xin chào người quen!", "user": match_info}
         else:
-            return {
-                "message": "Cảnh báo: Phát hiện người lạ!",
-                "distance": round(distance, 4) if distance != float('inf') else None
-            }
+            return {"status": "unknown", "message": "Phát hiện người lạ!"}
 
     except ValueError:
-        return {"error": "Không tìm thấy khuôn mặt trong ảnh!"}
+        return {"status": "error", "message": "Không tìm thấy khuôn mặt trong ảnh!"}
     except Exception as e:
-        return {"error": f"Lỗi hệ thống: {str(e)}"}
+        return {"status": "error", "message": f"Lỗi hệ thống: {str(e)}"}
     
 @app.get("/api/logs")
 def view_attendance_logs():
