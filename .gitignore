@@ -13,3 +13,7 @@ dist/
 # Database & Storage (Local)
 db_data/
 minio_data/
+
+# Ignore SQLite databases
+*.db
+*.sqlite3
