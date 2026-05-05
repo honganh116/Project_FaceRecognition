@@ -1,4 +1,4 @@
-version: '3.8'
+ersion: '3.8'
 
 services:
   # 1. Khởi chạy AI Backend
@@ -9,9 +9,9 @@ services:
     container_name: face_backend
     ports:
       - "8000:8000"
-    # Mount volume để lưu file SQLite (tạm thời) ra ngoài, tránh mất dữ liệu khi tắt container
     volumes:
-      - ./backend_data:/app
+      # Map thẳng thư mục code backend vào máy ảo
+      - ./backend:/app  
     restart: always
 
   # 2. Khởi chạy Giao diện Frontend
