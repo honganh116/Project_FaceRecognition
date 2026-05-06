@@ -195,7 +195,7 @@ export default function CameraView() {
       </AnimatePresence>
       
       <div className="absolute bottom-8 right-8 z-20 flex items-center gap-2 text-[#34d399] font-mono text-[10px] uppercase pointer-events-none">
-         <ScanFace className="w-4 h-4 animate-pulse" /> MTCNN Tracking Active
+         <ScanFace className="w-4 h-4 animate-pulse" /> OPENCV Tracking Active
       </div>
     </div>
   );

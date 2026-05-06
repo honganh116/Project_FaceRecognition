@@ -33,7 +33,7 @@ def warmup_ai_models():
         DeepFace.represent(
             img_path=dummy_img, 
             model_name="Facenet", 
-            detector_backend="mtcnn", 
+            detector_backend="opencv", 
             enforce_detection=False
         )
         print("✅ Nạp AI thành công! Server đã sẵn sàng nhận diện siêu tốc.")
@@ -85,7 +85,7 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
             img1_path=img1, 
             img2_path=img2, 
             model_name="Facenet", 
-            detector_backend="mtcnn",
+            detector_backend="opencv",
             enforce_detection=True
         )
 
@@ -113,11 +113,11 @@ async def register_face(
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 2. Trích xuất vector bằng MTCNN (Mắt thần xịn)
+        # 2. Trích xuất vector bằng OPENCV (Mắt thần xịn)
         results = DeepFace.represent(
             img_path=img, 
             model_name="Facenet", 
-            detector_backend="mtcnn", 
+            detector_backend="opencv", 
             enforce_detection=True
         )
         embedding_vector = results[0]["embedding"]
@@ -142,7 +142,6 @@ async def recognize_face(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 1. TĂNG TỐC: Đổi detector_backend từ "mtcnn" sang "opencv"
         # OpenCV dò mặt siêu nhanh, phù hợp cho luồng stream liên tục
         results = DeepFace.represent(
             img_path=img, 
