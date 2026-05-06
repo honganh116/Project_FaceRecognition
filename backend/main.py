@@ -32,9 +32,10 @@ def warmup_ai_models():
         # Cài enforce_detection=False để nó không ném lỗi khi không thấy mặt trong ảnh đen
         DeepFace.represent(
             img_path=dummy_img, 
-            model_name="Facenet", 
-            detector_backend="opencv", 
-            enforce_detection=False
+            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
+            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            enforce_detection=False,
+            align=False
         )
         print("✅ Nạp AI thành công! Server đã sẵn sàng nhận diện siêu tốc.")
     except Exception as e:
@@ -55,7 +56,13 @@ async def extract_face(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        results = DeepFace.represent(img_path=img, model_name="Facenet", enforce_detection=True)
+        results = DeepFace.represent(
+            img_path=img, 
+            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
+            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            enforce_detection=True,
+            align=True
+        )
         embedding_vector = results[0]["embedding"]
 
         return {
@@ -84,9 +91,10 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
         result = DeepFace.verify(
             img1_path=img1, 
             img2_path=img2, 
-            model_name="Facenet", 
-            detector_backend="opencv",
-            enforce_detection=True
+            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
+            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            enforce_detection=True,
+            align=True
         )
 
         return {
@@ -116,9 +124,10 @@ async def register_face(
         # 2. Trích xuất vector bằng OPENCV (Mắt thần xịn)
         results = DeepFace.represent(
             img_path=img, 
-            model_name="Facenet", 
-            detector_backend="opencv", 
-            enforce_detection=True
+            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
+            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            enforce_detection=True,
+            align=True                   # Bật tự động xoay mặt thẳng
         )
         embedding_vector = results[0]["embedding"]
 
@@ -145,9 +154,10 @@ async def recognize_face(file: UploadFile = File(...)):
         # OpenCV dò mặt siêu nhanh, phù hợp cho luồng stream liên tục
         results = DeepFace.represent(
             img_path=img, 
-            model_name="Facenet", 
-            detector_backend="opencv", 
-            enforce_detection=True
+            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
+            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            enforce_detection=True,
+            align=True                   # Bật tự động xoay mặt thẳng
         )
 
         # 2. XỬ LÝ NHIỀU KHUÔN MẶT: Báo lỗi nếu có > 1 người
