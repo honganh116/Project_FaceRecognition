@@ -19,6 +19,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mở file backend/main.py, tìm đến đoạn init_db() và thêm phần này vào ngay dưới:
+
+@app.on_event("startup")
+def warmup_ai_models():
+    print("⏳ Đang làm nóng (Warm-up) model AI... Vui lòng đợi.")
+    try:
+        # Tạo một bức ảnh đen giả (kích thước 224x224)
+        dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
+        
+        # Bắt DeepFace chạy thử 1 lần. 
+        # Cài enforce_detection=False để nó không ném lỗi khi không thấy mặt trong ảnh đen
+        DeepFace.represent(
+            img_path=dummy_img, 
+            model_name="Facenet", 
+            detector_backend="mtcnn", 
+            enforce_detection=False
+        )
+        print("✅ Nạp AI thành công! Server đã sẵn sàng nhận diện siêu tốc.")
+    except Exception as e:
+        print(f"⚠️ Lỗi lúc khởi động AI: {e}")
+
 @app.get("/")
 def read_root():
     return {"message": "Server FastAPI đang hoạt động trơn tru!"}
@@ -138,13 +159,33 @@ async def recognize_face(file: UploadFile = File(...)):
             }
 
         target_embedding = results[0]["embedding"]
+        
+        # Lấy tọa độ khuôn mặt từ kết quả của DeepFace
+        facial_area = results[0].get("facial_area", {})
+        box = {
+            "x": facial_area.get("x", 0),
+            "y": facial_area.get("y", 0),
+            "w": facial_area.get("w", 0),
+            "h": facial_area.get("h", 0)
+        }
+
+        # Đem vector đi so sánh với DB
         found, match_info, distance = find_match_in_db(target_embedding)
 
         if found:
             log_attendance(match_info["name"], match_info["student_code"])
-            return {"status": "success", "message": "Xin chào người quen!", "user": match_info}
+            return {
+                "message": "Xin chào người quen!",
+                "user": match_info, 
+                "distance": round(distance, 4),
+                "box": box  # Ném thêm tọa độ về cho Frontend
+            }
         else:
-            return {"status": "unknown", "message": "Phát hiện người lạ!"}
+            return {
+                "message": "Cảnh báo: Phát hiện người lạ!",
+                "distance": round(distance, 4) if distance != float('inf') else None,
+                "box": box  # Người lạ cũng phải vẽ khung để theo dõi
+            }
 
     except ValueError:
         return {"status": "error", "message": "Không tìm thấy khuôn mặt trong ảnh!"}
