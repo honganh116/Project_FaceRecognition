@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, ShieldAlert, ScanFace, Focus, Fingerprint } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ScanFace, Focus, Fingerprint, Users } from 'lucide-react';
 
 export default function CameraView() {
   const videoRef = useRef(null);
@@ -82,13 +82,26 @@ export default function CameraView() {
         const res = await fetch('http://localhost:8000/api/recognize', { method: 'POST', body: formData });
         const data = await res.json();
 
+        // 1. Xử lý lỗi hệ thống (không thấy mặt)
         if (data.error) {
-            setStatus('idle'); // Quét lỗi thì quay về trạng thái chờ
+            setStatus('idle'); 
             isProcessingRef.current = false;
             alert("Lỗi: Không tìm thấy khuôn mặt, vui lòng nhìn thẳng camera!");
             return; 
         }
 
+        // 2. XỬ LÝ TRƯỜNG HỢP NHIỀU NGƯỜI (Cập nhật mới)
+        if (data.status === 'warning') {
+            setStatus('warning'); // Chuyển sang trạng thái cảnh báo vàng
+            setTimeout(() => { 
+                setStatus('idle'); 
+                isProcessingRef.current = false;
+                if(overlayRef.current) overlayRef.current.getContext('2d').clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+            }, 3000);
+            return;
+        }
+
+        // 3. Xử lý 1 người bình thường
         const isKnown = !!data.user;
         drawTrackingBox(data.box, isKnown);
 
@@ -99,7 +112,7 @@ export default function CameraView() {
           setStatus('unknown');
         }
 
-        // Hiện kết quả 3 giây rồi tự động dọn dẹp, quay về trạng thái 'idle' (chờ người tiếp theo)
+        // Tự động dọn dẹp sau 3s
         setTimeout(() => { 
             setStatus('idle'); 
             isProcessingRef.current = false;
@@ -147,6 +160,19 @@ export default function CameraView() {
               <div className="text-center">
                 <h3 className="font-mono font-bold text-xl uppercase text-[#34d399] mb-2">Chấm công thành công</h3>
                 <p className="text-white text-lg font-mono">{user?.name} <span className="text-[#64748b] ml-2">| {user?.student_code}</span></p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* POPUP MỚI: CẢNH BÁO NHIỀU NGƯỜI */}
+        {status === 'warning' && (
+          <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="absolute z-30 flex justify-center">
+             <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-12 py-8 flex flex-col items-center gap-4 border-2 border-[#eab308] rounded-2xl shadow-[0_20px_60px_rgba(234,179,8,0.3)]">
+              <Users className="w-16 h-16 text-[#eab308]" />
+              <div className="text-center">
+                <h3 className="font-mono font-bold text-xl uppercase text-[#eab308] mb-2">Quá nhiều khuôn mặt</h3>
+                <p className="text-[#64748b] font-mono text-sm uppercase tracking-wider">Vui lòng bước vào khung hình từng người một.</p>
               </div>
             </div>
           </motion.div>
