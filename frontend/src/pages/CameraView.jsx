@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, ShieldAlert, ScanFace, Focus } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ScanFace, Focus, AlertTriangle } from 'lucide-react';
 
 export default function CameraView() {
   const videoRef = useRef(null);
@@ -95,6 +95,15 @@ export default function CameraView() {
             isProcessingRef.current = false;
             return; 
         }
+        if (data.status === 'warning') {
+            if(overlayRef.current) overlayRef.current.getContext('2d').clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+            setStatus('warning');
+            setTimeout(() => { 
+                setStatus('scanning'); 
+                isProcessingRef.current = false; 
+            }, 3000);
+            return; // Dừng lại, không vẽ khung hay xử lý tiếp
+        }
 
         // Vẽ khung bám theo mặt
         const isKnown = !!data.user;
@@ -153,12 +162,22 @@ export default function CameraView() {
       <AnimatePresence>
         {status !== 'scanning' && (
           <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute bottom-16 z-30 flex justify-center w-full pointer-events-none">
+            
             {status === 'success' ? (
               <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-10 py-5 flex items-center gap-5 border border-[#34d399] rounded-xl">
                 <ShieldCheck className="w-10 h-10 text-[#34d399]" />
                 <div>
                   <h3 className="font-mono font-bold text-sm uppercase text-[#34d399] mb-1">Xác thực thành công</h3>
                   <p className="text-white text-sm font-mono">{user?.name} | {user?.student_code}</p>
+                </div>
+              </div>
+            ) : status === 'warning' ? (
+              // 🌟 GIAO DIỆN MỚI: CẢNH BÁO NHIỀU NGƯỜI (MÀU VÀNG)
+              <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-10 py-5 flex items-center gap-5 border border-[#eab308] rounded-xl shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+                <AlertTriangle className="w-10 h-10 text-[#eab308] animate-pulse" />
+                <div>
+                  <h3 className="font-mono font-bold text-sm uppercase text-[#eab308] mb-1">Lỗi Kiểm soát</h3>
+                  <p className="text-[#64748b] font-mono text-sm uppercase tracking-wider">Phát hiện nhiều người. Vui lòng quét từng người!</p>
                 </div>
               </div>
             ) : (
@@ -170,6 +189,7 @@ export default function CameraView() {
                 </div>
               </div>
             )}
+
           </motion.div>
         )}
       </AnimatePresence>
