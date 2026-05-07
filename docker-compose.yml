@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. Khởi chạy AI Backend
+  # 1. Khởi chạy AI Backend (Giữ nguyên)
   backend:
     build: 
       context: ./backend
@@ -10,18 +10,29 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Map thẳng thư mục code backend vào máy ảo
       - ./backend:/app  
     restart: always
 
-  # 2. Khởi chạy Giao diện Frontend
-  frontend:
+  # 2. Giao diện Terminal Quét mặt (Cổng 3000)
+  frontend_kiosk:
     build: 
-      context: ./frontend
+      context: ./frontend_kiosk
       dockerfile: Dockerfile
-    container_name: face_frontend
+    container_name: face_frontend_kiosk
     ports:
-      - "3000:80" # Mapping cổng 3000 ở máy thật vào cổng 80 của Nginx trong container
+      - "3000:80" 
+    depends_on:
+      - backend
+    restart: always
+
+  # 3. Giao diện Quản trị Admin (Cổng 4000)
+  frontend_admin:
+    build: 
+      context: ./frontend_admin
+      dockerfile: Dockerfile
+    container_name: face_frontend_admin
+    ports:
+      - "4000:80" # Chạy trên cổng 4000 an toàn, cách ly với cổng 3000
     depends_on:
       - backend
     restart: always
