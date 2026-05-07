@@ -10,9 +10,22 @@ export default function AdminDashboard() {
   const [photo, setPhoto] = useState(null);
 
   // Lấy lịch sử từ API thật của nhóm
-  const fetchLogs = async () => {
+const fetchLogs = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/logs');
+      const token = localStorage.getItem('token'); // Lấy chìa khóa
+      const res = await fetch('http://localhost:8000/api/logs', {
+        headers: {
+          'Authorization': `Bearer ${token}` // Đính kèm chìa khóa
+        }
+      });
+      
+      // Nếu token hết hạn (mã 401), văng ra log in lại
+      if (res.status === 401) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return;
+      }
+      
       const data = await res.json();
       setLogs(data.data || []);
     } catch (error) {
@@ -25,7 +38,7 @@ export default function AdminDashboard() {
   }, []);
 
   // Gọi API Đăng ký thật
-  const handleSubmit = async (e) => {
+ const handleSubmit = async (e) => {
     e.preventDefault();
     if (!photo) return alert("Vui lòng chọn ảnh!");
     
@@ -36,7 +49,13 @@ export default function AdminDashboard() {
     data.append('file', photo);
 
     try {
-      const res = await fetch('http://localhost:8000/api/register', { method: 'POST', body: data });
+      const res = await fetch('http://localhost:8000/api/register', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: data // Đính kèm dữ liệu (Tên, Mã SV, Ảnh) vào đây
+      });
       const result = await res.json();
 
       if (result.error) {
