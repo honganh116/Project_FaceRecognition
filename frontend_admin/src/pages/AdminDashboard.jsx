@@ -12,7 +12,7 @@ export default function AdminDashboard() {
   // Lấy lịch sử từ API thật của nhóm
 const fetchLogs = async () => {
     try {
-      const token = localStorage.getItem('token'); // Lấy chìa khóa
+      const token = sessionStorage.getItem('token'); // Lấy chìa khóa
       const res = await fetch('http://localhost:8000/api/logs', {
         headers: {
           'Authorization': `Bearer ${token}` // Đính kèm chìa khóa
@@ -21,7 +21,7 @@ const fetchLogs = async () => {
       
       // Nếu token hết hạn (mã 401), văng ra log in lại
       if (res.status === 401) {
-        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
         window.location.href = '/login';
         return;
       }
@@ -52,7 +52,7 @@ const fetchLogs = async () => {
       const res = await fetch('http://localhost:8000/api/register', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`
         },
         body: data // Đính kèm dữ liệu (Tên, Mã SV, Ảnh) vào đây
       });

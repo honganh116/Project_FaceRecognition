@@ -29,7 +29,7 @@ export default function LoginPage() {
 
       if (res.ok) {
         // Lưu token vào trình duyệt và tải lại trang
-        localStorage.setItem('token', data.access_token);
+        sessionStorage.setItem('token', data.access_token);
         window.location.href = '/'; 
       } else {
         setError(data.detail || 'Đăng nhập thất bại');

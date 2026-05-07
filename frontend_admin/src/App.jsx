@@ -6,7 +6,7 @@ import LoginPage from './pages/LoginPage'; // <--- CHÍNH LÀ DÒNG NÀY ĐÂY!
 
 function App() {
   // Kiểm tra xem trình duyệt đã giữ chìa khóa (token) chưa
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
 
   return (
     <Router>
