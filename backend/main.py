@@ -2,8 +2,70 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs
 from deepface import DeepFace
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
 import cv2
 import numpy as np
+
+# 1. Cấu hình bảo mật
+SECRET_KEY = "Sieu_Mat_Khau_Cua_Ban_O_Day"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+# Tài khoản Admin mặc định
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "123" 
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_admin(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username != ADMIN_USERNAME:
+            raise HTTPException(status_code=401, detail="Không có quyền truy cập")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Phiên làm việc hết hạn")
+
+# 🌟 2. KHỞI TẠO APP
+app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
+
+init_db() 
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 🌟 3. API ĐĂNG NHẬP
+@app.post("/api/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username == ADMIN_USERNAME and form_data.password == ADMIN_PASSWORD:
+        access_token = create_access_token(data={"sub": form_data.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+    raise HTTPException(status_code=400, detail="Sai tài khoản hoặc mật khẩu")
+
+# ==========================================
+# (Các hàm bên dưới như warmup_ai_models, extract_face... GIỮ NGUYÊN)
+
+# 1. Cấu hình bảo mật và biến môi trường
+SECRET_KEY = "Sieu_Mat_Khau_Cua_Ban_O_Day"
+ALGORITHM = "HS256"
+# ... (các hàm tạo token giữ nguyên) ...
 
 # Khởi tạo app
 app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
@@ -19,6 +81,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🌟 3. BÂY GIỜ MỚI ĐẾN API ĐĂNG NHẬP 🌟
+@app.post("/api/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username == ADMIN_USERNAME and form_data.password == ADMIN_PASSWORD:
+        access_token = create_access_token(data={"sub": form_data.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+    raise HTTPException(status_code=400, detail="Sai tài khoản hoặc mật khẩu")
 # Mở file backend/main.py, tìm đến đoạn init_db() và thêm phần này vào ngay dưới:
 
 @app.on_event("startup")
@@ -113,7 +182,8 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
 async def register_face(
     name: str = Form(...),            # Nhận Tên người dùng
     student_code: str = Form(...),    # Nhận Mã Sinh Viên
-    file: UploadFile = File(...)      # Nhận Ảnh
+    file: UploadFile = File(...),      # Nhận Ảnh
+    admin: str = Depends(get_current_admin)
 ):
     try:
         # 1. Đọc ảnh
@@ -202,7 +272,7 @@ async def recognize_face(file: UploadFile = File(...)):
         return {"status": "error", "message": f"Lỗi hệ thống: {str(e)}"}
     
 @app.get("/api/logs")
-def view_attendance_logs():
+def view_attendance_logs(admin: str = Depends(get_current_admin)):
     logs = get_all_logs()
     return {
         "message": "Danh sách điểm danh",
