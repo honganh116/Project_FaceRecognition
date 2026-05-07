@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Camera, Users, Shield, Server, Database } from 'lucide-react';
+import { Camera, Shield, Server, Database } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export default function Navigation() {
@@ -11,17 +11,13 @@ export default function Navigation() {
           <Shield className="w-8 h-8 text-[#34d399]" />
           <h1 className="font-mono font-bold text-sm tracking-[2px] uppercase text-[#f8fafc]">FaceID Gate</h1>
         </div>
-        <p className="text-[10px] uppercase font-mono tracking-widest text-[#64748b] mt-2">Hệ thống Nhận diện</p>
+        <p className="text-[10px] uppercase font-mono tracking-widest text-[#64748b] mt-2">Terminal Chấm Công</p>
       </div>
 
       <div className="flex-1 py-6 flex flex-col gap-2 px-4">
         <NavLink to="/" className={({ isActive }) => cn("flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm", isActive ? "bg-blue-600/10 text-blue-400" : "hover:bg-slate-800 hover:text-white")}>
           <Camera className="w-5 h-5" />
           Camera Quét
-        </NavLink>
-        <NavLink to="/admin" className={({ isActive }) => cn("flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm", isActive ? "bg-blue-600/10 text-blue-400" : "hover:bg-slate-800 hover:text-white")}>
-          <Users className="w-5 h-5" />
-          Quản trị Hệ thống
         </NavLink>
       </div>
 

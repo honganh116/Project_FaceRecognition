@@ -58,9 +58,9 @@ def cosine_distance(vec1, vec2):
     vec2 = np.array(vec2)
     return 1 - np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
-def find_match_in_db(target_embedding, threshold=0.68):
+def find_match_in_db(target_embedding, threshold=0.55):
     """Lục tìm khuôn mặt giống nhất trong Database. 
-    Với model ArcFace, khoảng cách < 0.68 được coi là cùng 1 người."""
+    Với model ArcFace, khoảng cách < 0.55 được coi là cùng 1 người."""
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
