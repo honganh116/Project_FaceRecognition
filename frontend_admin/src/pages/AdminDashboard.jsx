@@ -8,9 +8,35 @@ export default function AdminDashboard() {
   const [addingStatus, setAddingStatus] = useState("idle"); // idle | saving | done | error
   const [formData, setFormData] = useState({ name: '', student_code: '' });
   const [photo, setPhoto] = useState(null);
+  
+  // Lấy giờ quy định từ két sắt, mặc định là 08:00 sáng
+  const [shiftTime, setShiftTime] = useState(localStorage.getItem('shiftTime') || '08:00');
+
+  const handleShiftTimeChange = (e) => {
+    const newTime = e.target.value;
+    setShiftTime(newTime);
+    localStorage.setItem('shiftTime', newTime); // Lưu lại để F5 không bị mất
+  };
+
+  // Hàm "Trọng tài" phán xử đi muộn hay đúng giờ (Đã tối ưu hóa)
+  const getAttendanceStatus = (timeString) => {
+    if (!timeString) return { text: "Không rõ", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
+    try {
+      // Đảm bảo lấy đúng phần "Giờ:Phút" dù dữ liệu có ngày tháng hay không
+      const timePart = timeString.includes(' ') ? timeString.split(' ')[1] : timeString;
+      const timeOnly = timePart.substring(0, 5); 
+      
+      if (timeOnly > shiftTime) {
+        return { text: "Đi muộn", color: "text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30" }; // Màu đỏ
+      }
+      return { text: "Đúng giờ", color: "text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30" }; // Màu xanh
+    } catch {
+      return { text: "Lỗi", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
+    }
+  };
 
   // Lấy lịch sử từ API thật của nhóm
-const fetchLogs = async () => {
+  const fetchLogs = async () => {
     try {
       const token = sessionStorage.getItem('token'); // Lấy chìa khóa
       const res = await fetch('http://localhost:8000/api/logs', {
@@ -38,7 +64,7 @@ const fetchLogs = async () => {
   }, []);
 
   // Gọi API Đăng ký thật
- const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!photo) return alert("Vui lòng chọn ảnh!");
     
@@ -124,6 +150,27 @@ const fetchLogs = async () => {
            </motion.div>
         )}
 
+        {/* 🌟 THÊM MỚI: KHỐI CÀI ĐẶT GIỜ VÀO CA 🌟 */}
+        <div className="mb-6 flex items-center justify-between bg-[#15171c] p-4 border border-[#2d2d2d]">
+          <div className="flex items-center gap-3">
+            <Clock className="text-[#34d399] w-5 h-5" />
+            <span className="text-[12px] font-mono font-bold text-gray-300 uppercase tracking-wider">
+              Quy định giờ vào ca:
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="time"
+              value={shiftTime}
+              onChange={handleShiftTimeChange}
+              className="bg-[#0a0b0d] border border-[#333] text-[#34d399] font-mono px-3 py-1 outline-none focus:border-[#34d399] transition-colors text-sm"
+            />
+            <span className="text-[10px] text-[#64748b] font-mono uppercase">
+              (Sau giờ này sẽ bị đánh dấu đi muộn)
+            </span>
+          </div>
+        </div>
+
         <div className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
@@ -131,6 +178,8 @@ const fetchLogs = async () => {
                 <th className="px-6 py-3 font-normal">Họ và Tên</th>
                 <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
                 <th className="px-6 py-3 font-normal">Thời gian nhận diện</th>
+                {/* 🌟 THÊM MỚI: CỘT TRẠNG THÁI 🌟 */}
+                <th className="px-6 py-3 font-normal">Trạng thái</th>
               </tr>
             </thead>
             <tbody className="font-sans text-xs">
@@ -139,6 +188,17 @@ const fetchLogs = async () => {
                   <td className="px-6 py-4 text-[#f8fafc]">{log.name}</td>
                   <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{log.student_code}</td>
                   <td className="px-6 py-4 text-[#64748b] font-mono text-[10px]">{log.time}</td>
+                  {/* 🌟 THÊM MỚI: HIỂN THỊ NHÃN ĐI MUỘN/ĐÚNG GIỜ 🌟 */}
+                  <td className="px-6 py-4">
+                    {(() => {
+                      const status = getAttendanceStatus(log.time); // Đã sửa thành log.time để bắt đúng biến
+                      return (
+                        <span className={`px-2 py-1 text-[10px] font-bold border ${status.color} uppercase tracking-wider`}>
+                          {status.text}
+                        </span>
+                      );
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>
