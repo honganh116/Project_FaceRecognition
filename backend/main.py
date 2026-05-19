@@ -1,7 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs
+from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs, get_shift_time, update_shift_time, delete_user_by_code
 from deepface import DeepFace
+from pydantic import BaseModel
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -15,7 +16,6 @@ SECRET_KEY = "Sieu_Mat_Khau_Cua_Ban_O_Day"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# Tài khoản Admin mặc định
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "123" 
 
@@ -41,6 +41,7 @@ async def get_current_admin(token: str = Depends(oauth2_scheme)):
 # 🌟 2. KHỞI TẠO APP
 app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
 
+# Khởi tạo Database Enterprise
 init_db() 
 
 app.add_middleware(
@@ -59,50 +60,16 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         return {"access_token": access_token, "token_type": "bearer"}
     raise HTTPException(status_code=400, detail="Sai tài khoản hoặc mật khẩu")
 
-# ==========================================
-# (Các hàm bên dưới như warmup_ai_models, extract_face... GIỮ NGUYÊN)
-
-# 1. Cấu hình bảo mật và biến môi trường
-SECRET_KEY = "Sieu_Mat_Khau_Cua_Ban_O_Day"
-ALGORITHM = "HS256"
-# ... (các hàm tạo token giữ nguyên) ...
-
-# Khởi tạo app
-app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
-
-# Khởi tạo Cơ sở dữ liệu ngay khi bật Server (THÊM MỚI)
-init_db() 
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # Cho phép mọi trang web gọi vào
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 🌟 3. BÂY GIỜ MỚI ĐẾN API ĐĂNG NHẬP 🌟
-@app.post("/api/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    if form_data.username == ADMIN_USERNAME and form_data.password == ADMIN_PASSWORD:
-        access_token = create_access_token(data={"sub": form_data.username})
-        return {"access_token": access_token, "token_type": "bearer"}
-    raise HTTPException(status_code=400, detail="Sai tài khoản hoặc mật khẩu")
-# Mở file backend/main.py, tìm đến đoạn init_db() và thêm phần này vào ngay dưới:
 
 @app.on_event("startup")
 def warmup_ai_models():
     print("⏳ Đang làm nóng (Warm-up) model AI... Vui lòng đợi.")
     try:
-        # Tạo một bức ảnh đen giả (kích thước 224x224)
         dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
-        
-        # Bắt DeepFace chạy thử 1 lần. 
-        # Cài enforce_detection=False để nó không ném lỗi khi không thấy mặt trong ảnh đen
         DeepFace.represent(
             img_path=dummy_img, 
-            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
-            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            model_name="ArcFace",        
+            detector_backend="ssd",      
             enforce_detection=False,
             align=False
         )
@@ -127,8 +94,8 @@ async def extract_face(file: UploadFile = File(...)):
 
         results = DeepFace.represent(
             img_path=img, 
-            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
-            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            model_name="ArcFace",        
+            detector_backend="ssd",      
             enforce_detection=True,
             align=True
         )
@@ -160,8 +127,8 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
         result = DeepFace.verify(
             img1_path=img1, 
             img2_path=img2, 
-            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
-            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            model_name="ArcFace",        
+            detector_backend="ssd",      
             enforce_detection=True,
             align=True
         )
@@ -180,29 +147,27 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
 
 @app.post("/api/register")
 async def register_face(
-    name: str = Form(...),            # Nhận Tên người dùng
-    student_code: str = Form(...),    # Nhận Mã Sinh Viên
-    file: UploadFile = File(...),      # Nhận Ảnh
+    name: str = Form(...),            
+    student_code: str = Form(...),    
+    file: UploadFile = File(...),      
     admin: str = Depends(get_current_admin)
 ):
     try:
-        # 1. Đọc ảnh
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 2. Trích xuất vector bằng OPENCV (Mắt thần xịn)
         results = DeepFace.represent(
             img_path=img, 
-            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
-            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            model_name="ArcFace",        
+            detector_backend="ssd",      
             enforce_detection=True,
-            align=True                   # Bật tự động xoay mặt thẳng
+            align=True                   
         )
         embedding_vector = results[0]["embedding"]
 
-        # 3. Gọi hàm lưu vào file face_database.db
-        success, msg = register_user(name, student_code, embedding_vector)
+        # 🌟 Cập nhật: Truyền thêm ảnh (contents) vào hàm
+        success, msg = register_user(name, student_code, embedding_vector, contents)
 
         if success:
             return {"message": msg, "name": name, "student_code": student_code}
@@ -221,16 +186,14 @@ async def recognize_face(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # OpenCV dò mặt siêu nhanh, phù hợp cho luồng stream liên tục
         results = DeepFace.represent(
             img_path=img, 
-            model_name="ArcFace",        # Đổi bộ não sang ArcFace (Tencent)
-            detector_backend="ssd",      # Đổi mắt sang SSD (nhạy hơn OpenCV)
+            model_name="ArcFace",        
+            detector_backend="ssd",      
             enforce_detection=True,
-            align=True                   # Bật tự động xoay mặt thẳng
+            align=True                   
         )
 
-        # 2. XỬ LÝ NHIỀU KHUÔN MẶT: Báo lỗi nếu có > 1 người
         if len(results) > 1:
             return {
                 "status": "warning", 
@@ -239,7 +202,6 @@ async def recognize_face(file: UploadFile = File(...)):
 
         target_embedding = results[0]["embedding"]
         
-        # Lấy tọa độ khuôn mặt từ kết quả của DeepFace
         facial_area = results[0].get("facial_area", {})
         box = {
             "x": facial_area.get("x", 0),
@@ -248,7 +210,6 @@ async def recognize_face(file: UploadFile = File(...)):
             "h": facial_area.get("h", 0)
         }
 
-        # Đem vector đi so sánh với DB
         found, match_info, distance = find_match_in_db(target_embedding)
 
         if found:
@@ -257,13 +218,13 @@ async def recognize_face(file: UploadFile = File(...)):
                 "message": "Xin chào người quen!",
                 "user": match_info, 
                 "distance": round(distance, 4),
-                "box": box  # Ném thêm tọa độ về cho Frontend
+                "box": box  
             }
         else:
             return {
                 "message": "Cảnh báo: Phát hiện người lạ!",
                 "distance": round(distance, 4) if distance != float('inf') else None,
-                "box": box  # Người lạ cũng phải vẽ khung để theo dõi
+                "box": box  
             }
 
     except ValueError:
@@ -279,3 +240,24 @@ def view_attendance_logs(admin: str = Depends(get_current_admin)):
         "total_records": len(logs),
         "data": logs
     }
+
+# --- API LƯU CẤU HÌNH GIỜ VÀO CA ---
+class ShiftTimeUpdate(BaseModel):
+    shift_time: str
+
+@app.get("/api/settings/shift-time")
+def get_shift_time_api():
+    return {"shift_time": get_shift_time()}
+
+@app.post("/api/settings/shift-time")
+def update_shift_time_api(data: ShiftTimeUpdate, admin: str = Depends(get_current_admin)):
+    update_shift_time(data.shift_time)
+    return {"message": "Cập nhật giờ vào ca thành công!"}
+
+@app.delete("/api/users/{student_code}")
+def remove_user(student_code: str, admin: str = Depends(get_current_admin)):
+    success, msg = delete_user_by_code(student_code)
+    if success:
+        return {"message": msg}
+    else:
+        raise HTTPException(status_code=404, detail=msg)

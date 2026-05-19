@@ -9,12 +9,8 @@ passlib==1.7.4
 bcrypt==4.0.1
 sqlalchemy
 psycopg2-binary
-
 minio
-
 redis
 rq
-
-qdrant-client
-
+qdrant-client>=1.8.0
 numpy
