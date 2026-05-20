@@ -13,13 +13,13 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    // FastAPI yêu cầu dữ liệu gửi lên dưới dạng Form URL Encoded
     const formData = new URLSearchParams();
     formData.append('username', username);
     formData.append('password', password);
 
     try {
-      const res = await fetch('http://localhost:8000/api/login', {
+      // Đã đổi đường dẫn API
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
@@ -28,9 +28,9 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok) {
-        // Lưu token vào trình duyệt và tải lại trang
+        // Lưu token vào trình duyệt và tải lại trang đúng phân vùng /admin/
         sessionStorage.setItem('token', data.access_token);
-        window.location.href = '/'; 
+        window.location.href = '/admin/'; // <--- ĐÃ SỬA DÒNG NÀY
       } else {
         setError(data.detail || 'Đăng nhập thất bại');
       }
@@ -45,7 +45,6 @@ export default function LoginPage() {
     <div className="flex h-screen w-full bg-[#0a0b0d] items-center justify-center font-mono">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="bg-[#15171c] p-10 rounded-2xl border border-[#2d2d2d] shadow-2xl w-full max-w-md relative overflow-hidden">
         
-        {/* Hiệu ứng tia sáng trang trí */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#34d399] to-transparent opacity-50"></div>
 
         <div className="flex flex-col items-center mb-8">

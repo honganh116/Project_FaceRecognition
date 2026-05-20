@@ -186,3 +186,11 @@ def delete_user_by_code(student_code):
     db.close()
 
     return True, f"Đã xóa sạch sẽ toàn bộ dữ liệu của {student_code}!"
+
+
+def get_all_users():
+    db = SessionLocal()
+    # Lấy danh sách từ bảng FaceProfile (Bảng chứa dữ liệu nhân sự đã đăng ký)
+    users = db.query(FaceProfile).order_by(FaceProfile.id.desc()).all()
+    db.close()
+    return [{"id": u.id, "name": u.name, "student_code": u.student_code, "image_url": u.image_url} for u in users]

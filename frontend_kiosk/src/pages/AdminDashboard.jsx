@@ -5,14 +5,14 @@ import { motion } from 'framer-motion';
 export default function AdminDashboard() {
   const [logs, setLogs] = useState([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [addingStatus, setAddingStatus] = useState("idle"); // idle | saving | done | error
+  const [addingStatus, setAddingStatus] = useState("idle"); 
   const [formData, setFormData] = useState({ name: '', student_code: '' });
   const [photo, setPhoto] = useState(null);
 
-  // Lấy lịch sử từ API thật của nhóm
   const fetchLogs = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/logs');
+      // Đã đổi đường dẫn API
+      const res = await fetch('/api/logs');
       const data = await res.json();
       setLogs(data.data || []);
     } catch (error) {
@@ -24,7 +24,6 @@ export default function AdminDashboard() {
     fetchLogs();
   }, []);
 
-  // Gọi API Đăng ký thật
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!photo) return alert("Vui lòng chọn ảnh!");
@@ -36,7 +35,8 @@ export default function AdminDashboard() {
     data.append('file', photo);
 
     try {
-      const res = await fetch('http://localhost:8000/api/register', { method: 'POST', body: data });
+      // Đã đổi đường dẫn API
+      const res = await fetch('/api/register', { method: 'POST', body: data });
       const result = await res.json();
 
       if (result.error) {
@@ -49,7 +49,7 @@ export default function AdminDashboard() {
           setAddingStatus("idle");
           setFormData({ name: '', student_code: '' });
           setPhoto(null);
-          fetchLogs(); // Load lại bảng
+          fetchLogs(); 
         }, 2000);
       }
     } catch (error) {

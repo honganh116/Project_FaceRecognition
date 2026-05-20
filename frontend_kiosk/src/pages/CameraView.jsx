@@ -5,8 +5,7 @@ import { ShieldCheck, ShieldAlert, ScanFace, Focus, Fingerprint, Users } from 'l
 export default function CameraView() {
   const videoRef = useRef(null);
   const overlayRef = useRef(null); 
-  // Thêm trạng thái 'idle' (Đang chờ bấm nút)
-  const [status, setStatus] = useState('idle'); // idle | scanning | success | unknown
+  const [status, setStatus] = useState('idle'); 
   const [user, setUser] = useState(null);
 
   const isProcessingRef = useRef(false);
@@ -26,7 +25,6 @@ export default function CameraView() {
                 }
             }
         }
-        // ĐÃ XÓA: setInterval ở đây để camera không tự động quét nữa
       })
       .catch(err => console.error("Lỗi Camera:", err));
 
@@ -53,19 +51,16 @@ export default function CameraView() {
     }
   };
 
-  // Hàm này giờ sẽ được gọi khi BẤM NÚT
   const handleManualScan = async () => {
     if (!videoRef.current || isProcessingRef.current) return;
     
     const video = videoRef.current;
     if (video.videoWidth === 0) return;
 
-    // Xóa khung xanh cũ trên kính (nếu có)
     if(overlayRef.current) {
         overlayRef.current.getContext('2d').clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
     }
 
-    // Chuyển trạng thái sang đang quét để hiện tia laser và khóa nút
     setStatus('scanning');
     isProcessingRef.current = true;
 
@@ -79,10 +74,10 @@ export default function CameraView() {
       formData.append('file', blob, 'frame.jpg');
 
       try {
-        const res = await fetch('http://localhost:8000/api/recognize', { method: 'POST', body: formData });
+        // Đã đổi đường dẫn API
+        const res = await fetch('/api/recognize', { method: 'POST', body: formData });
         const data = await res.json();
 
-        // 1. Xử lý lỗi hệ thống (không thấy mặt)
         if (data.error) {
             setStatus('idle'); 
             isProcessingRef.current = false;
@@ -90,9 +85,8 @@ export default function CameraView() {
             return; 
         }
 
-        // 2. XỬ LÝ TRƯỜNG HỢP NHIỀU NGƯỜI (Cập nhật mới)
         if (data.status === 'warning') {
-            setStatus('warning'); // Chuyển sang trạng thái cảnh báo vàng
+            setStatus('warning'); 
             setTimeout(() => { 
                 setStatus('idle'); 
                 isProcessingRef.current = false;
@@ -101,7 +95,6 @@ export default function CameraView() {
             return;
         }
 
-        // 3. Xử lý 1 người bình thường
         const isKnown = !!data.user;
         drawTrackingBox(data.box, isKnown);
 
@@ -112,7 +105,6 @@ export default function CameraView() {
           setStatus('unknown');
         }
 
-        // Tự động dọn dẹp sau 3s
         setTimeout(() => { 
             setStatus('idle'); 
             isProcessingRef.current = false;
@@ -133,7 +125,6 @@ export default function CameraView() {
       <video ref={videoRef} autoPlay playsInline className="absolute w-full h-full object-cover transform -scale-x-100 opacity-80" />
       <canvas ref={overlayRef} className="absolute w-full h-full object-cover pointer-events-none z-10" />
 
-      {/* Tiêu đề góc trái (Đã sửa cho khớp Use Case Chấm công) */}
       <div className="absolute top-8 left-8 z-20 pointer-events-none">
         <h2 className="text-xl font-mono tracking-[4px] font-bold text-white mb-2 uppercase flex items-center gap-2">
            <Focus className="w-6 h-6 text-[#34d399]" /> Terminal Chấm Công
@@ -141,17 +132,15 @@ export default function CameraView() {
         <p className="text-[#34d399] font-mono text-xs tracking-widest uppercase animate-pulse">● Sẵn sàng</p>
       </div>
 
-      {/* NÚT BẤM QUÉT KHUÔN MẶT (Manual Trigger) */}
       <button 
         onClick={handleManualScan}
-        disabled={status !== 'idle'} // Chỉ cho bấm khi đang rảnh
+        disabled={status !== 'idle'}
         className="absolute bottom-32 z-40 bg-[#34d399] text-black px-10 py-4 rounded-full font-bold font-mono tracking-[2px] uppercase shadow-[0_0_30px_rgba(52,211,153,0.3)] hover:bg-[#2dbb86] hover:scale-105 hover:shadow-[0_0_40px_rgba(52,211,153,0.5)] active:scale-95 transition-all disabled:opacity-0 disabled:scale-90 flex items-center gap-3 cursor-pointer"
       >
         <Fingerprint className="w-6 h-6" />
         Xác nhận Chấm công
       </button>
 
-      {/* Popup Thông báo */}
       <AnimatePresence>
         {status === 'success' && (
           <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="absolute z-30 flex justify-center">
@@ -165,7 +154,6 @@ export default function CameraView() {
           </motion.div>
         )}
 
-        {/* POPUP MỚI: CẢNH BÁO NHIỀU NGƯỜI */}
         {status === 'warning' && (
           <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="absolute z-30 flex justify-center">
              <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-12 py-8 flex flex-col items-center gap-4 border-2 border-[#eab308] rounded-2xl shadow-[0_20px_60px_rgba(234,179,8,0.3)]">
@@ -190,7 +178,6 @@ export default function CameraView() {
           </motion.div>
         )}
         
-        {/* Hiệu ứng tia quét chỉ hiện ra lúc đang chờ API (khoảng vài trăm mili-giây) */}
         {status === 'scanning' && (
            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute z-30 flex flex-col items-center gap-4">
                <ScanFace className="w-20 h-20 text-[#34d399] animate-pulse" />

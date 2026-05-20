@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs, get_shift_time, update_shift_time, delete_user_by_code
+from database import init_db, register_user, find_match_in_db, log_attendance, get_all_logs, get_shift_time, update_shift_time, delete_user_by_code, get_all_users
 from deepface import DeepFace
 from pydantic import BaseModel
 from fastapi import Depends, HTTPException, status
@@ -239,6 +239,16 @@ def view_attendance_logs(admin: str = Depends(get_current_admin)):
         "message": "Danh sách điểm danh",
         "total_records": len(logs),
         "data": logs
+    }
+
+
+@app.get("/api/users")
+def view_all_users(admin: str = Depends(get_current_admin)):
+    users = get_all_users()
+    return {
+        "message": "Danh sách nhân sự",
+        "total_records": len(users),
+        "data": users
     }
 
 # --- API LƯU CẤU HÌNH GIỜ VÀO CA ---

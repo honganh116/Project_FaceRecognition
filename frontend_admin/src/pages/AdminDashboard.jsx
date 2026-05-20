@@ -1,69 +1,69 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Save, CheckCircle2, Clock } from 'lucide-react';
+import { UserPlus, Save, CheckCircle2, Clock, Trash2, List, Database } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState('logs'); // 'logs' hoặc 'users'
+  
   const [logs, setLogs] = useState([]);
+  const [users, setUsers] = useState([]); // Dữ liệu nhân sự
+  
   const [isAdding, setIsAdding] = useState(false);
-  const [addingStatus, setAddingStatus] = useState("idle"); // idle | saving | done | error
+  const [addingStatus, setAddingStatus] = useState("idle"); 
   const [formData, setFormData] = useState({ name: '', student_code: '' });
   const [photo, setPhoto] = useState(null);
   
-  // Lấy giờ quy định từ két sắt, mặc định là 08:00 sáng
   const [shiftTime, setShiftTime] = useState(localStorage.getItem('shiftTime') || '08:00');
 
   const handleShiftTimeChange = (e) => {
     const newTime = e.target.value;
     setShiftTime(newTime);
-    localStorage.setItem('shiftTime', newTime); // Lưu lại để F5 không bị mất
+    localStorage.setItem('shiftTime', newTime); 
   };
 
-  // Hàm "Trọng tài" phán xử đi muộn hay đúng giờ (Đã tối ưu hóa)
   const getAttendanceStatus = (timeString) => {
     if (!timeString) return { text: "Không rõ", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
     try {
-      // Đảm bảo lấy đúng phần "Giờ:Phút" dù dữ liệu có ngày tháng hay không
       const timePart = timeString.includes(' ') ? timeString.split(' ')[1] : timeString;
       const timeOnly = timePart.substring(0, 5); 
       
       if (timeOnly > shiftTime) {
-        return { text: "Đi muộn", color: "text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30" }; // Màu đỏ
+        return { text: "Đi muộn", color: "text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30" };
       }
-      return { text: "Đúng giờ", color: "text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30" }; // Màu xanh
+      return { text: "Đúng giờ", color: "text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30" };
     } catch {
       return { text: "Lỗi", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
     }
   };
 
-  // Lấy lịch sử từ API thật của nhóm
   const fetchLogs = async () => {
     try {
-      const token = sessionStorage.getItem('token'); // Lấy chìa khóa
-      const res = await fetch('http://localhost:8000/api/logs', {
-        headers: {
-          'Authorization': `Bearer ${token}` // Đính kèm chìa khóa
-        }
+      const res = await fetch('/api/logs', {
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
       });
-      
-      // Nếu token hết hạn (mã 401), văng ra log in lại
-      if (res.status === 401) {
-        sessionStorage.removeItem('token');
-        window.location.href = '/login';
-        return;
-      }
-      
+      if (res.status === 401) return window.location.href = '/admin/login'; 
       const data = await res.json();
       setLogs(data.data || []);
-    } catch (error) {
-      console.error("Lỗi lấy dữ liệu:", error);
-    }
+    } catch (error) { console.error("Lỗi lấy Logs:", error); }
   };
 
-  useEffect(() => {
-    fetchLogs();
-  }, []);
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/users', {
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
+      });
+      if (res.status === 401) return window.location.href = '/admin/login'; 
+      const data = await res.json();
+      setUsers(data.data || []);
+    } catch (error) { console.error("Lỗi lấy Nhân sự:", error); }
+  };
 
-  // Gọi API Đăng ký thật
+  // Gọi API tương ứng khi chuyển tab
+  useEffect(() => {
+    if (activeTab === 'logs') fetchLogs();
+    if (activeTab === 'users') fetchUsers();
+  }, [activeTab]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!photo) return alert("Vui lòng chọn ảnh!");
@@ -75,12 +75,10 @@ export default function AdminDashboard() {
     data.append('file', photo);
 
     try {
-      const res = await fetch('http://localhost:8000/api/register', {
+      const res = await fetch('/api/register', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('token')}`
-        },
-        body: data // Đính kèm dữ liệu (Tên, Mã SV, Ảnh) vào đây
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+        body: data 
       });
       const result = await res.json();
 
@@ -94,12 +92,38 @@ export default function AdminDashboard() {
           setAddingStatus("idle");
           setFormData({ name: '', student_code: '' });
           setPhoto(null);
-          fetchLogs(); // Load lại bảng
+          // Tải lại cả 2 dữ liệu
+          fetchLogs(); 
+          fetchUsers();
         }, 2000);
       }
     } catch (error) {
       alert("Lỗi kết nối Server!");
       setAddingStatus("error");
+    }
+  };
+
+  const handleDeleteUser = async (studentCode, name) => {
+    if (!window.confirm(`NGUY HIỂM: Bạn có chắc chắn muốn xóa sinh viên [${name} - ${studentCode}] khỏi Database (Postgres, MinIO, Qdrant)?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/users/${studentCode}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
+      });
+      
+      const result = await res.json();
+
+      if (res.ok) {
+        alert("Đã xóa sạch dữ liệu của nhân sự này!");
+        fetchUsers(); // Cập nhật lại tab Database
+      } else {
+        alert(result.detail || result.error || "Lỗi không thể xóa!");
+      }
+    } catch (error) {
+      alert("Lỗi kết nối Server!");
     }
   };
 
@@ -109,7 +133,7 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between mb-8 border-b border-[#2d2d2d] pb-6">
           <div>
             <h1 className="text-sm font-mono tracking-[2px] font-bold text-[#f8fafc] uppercase">Quản trị Hệ thống FaceID</h1>
-            <p className="text-[#64748b] font-mono text-[10px] uppercase tracking-wider mt-2">Danh sách điểm danh & Đăng ký sinh viên.</p>
+            <p className="text-[#64748b] font-mono text-[10px] uppercase tracking-wider mt-2">Danh sách điểm danh & Quản lý Database.</p>
           </div>
           <button onClick={() => setIsAdding(!isAdding)} className="bg-[#34d399] text-black px-4 py-2 flex items-center gap-2 rounded-sm font-mono text-xs font-bold uppercase hover:bg-[#2dbb86]">
              <UserPlus className="w-5 h-5"/> Thêm nhân sự
@@ -150,60 +174,116 @@ export default function AdminDashboard() {
            </motion.div>
         )}
 
-        {/* 🌟 THÊM MỚI: KHỐI CÀI ĐẶT GIỜ VÀO CA 🌟 */}
-        <div className="mb-6 flex items-center justify-between bg-[#15171c] p-4 border border-[#2d2d2d]">
-          <div className="flex items-center gap-3">
-            <Clock className="text-[#34d399] w-5 h-5" />
-            <span className="text-[12px] font-mono font-bold text-gray-300 uppercase tracking-wider">
-              Quy định giờ vào ca:
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="time"
-              value={shiftTime}
-              onChange={handleShiftTimeChange}
-              className="bg-[#0a0b0d] border border-[#333] text-[#34d399] font-mono px-3 py-1 outline-none focus:border-[#34d399] transition-colors text-sm"
-            />
-            <span className="text-[10px] text-[#64748b] font-mono uppercase">
-              (Sau giờ này sẽ bị đánh dấu đi muộn)
-            </span>
-          </div>
+        {/* THIẾT KẾ TAB NAVIGATION */}
+        <div className="flex gap-4 mb-6 border-b border-[#2d2d2d]">
+          <button 
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors ${activeTab === 'logs' ? 'text-[#34d399] border-b-2 border-[#34d399]' : 'text-[#64748b] hover:text-white'}`}
+          >
+            <List className="w-4 h-4" /> Lịch sử Điểm danh
+          </button>
+          <button 
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors ${activeTab === 'users' ? 'text-[#34d399] border-b-2 border-[#34d399]' : 'text-[#64748b] hover:text-white'}`}
+          >
+            <Database className="w-4 h-4" /> Dữ liệu Database
+          </button>
         </div>
 
-        <div className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
-              <tr>
-                <th className="px-6 py-3 font-normal">Họ và Tên</th>
-                <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
-                <th className="px-6 py-3 font-normal">Thời gian nhận diện</th>
-                {/* 🌟 THÊM MỚI: CỘT TRẠNG THÁI 🌟 */}
-                <th className="px-6 py-3 font-normal">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody className="font-sans text-xs">
-              {logs.map((log, i) => (
-                <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26]">
-                  <td className="px-6 py-4 text-[#f8fafc]">{log.name}</td>
-                  <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{log.student_code}</td>
-                  <td className="px-6 py-4 text-[#64748b] font-mono text-[10px]">{log.time}</td>
-                  {/* 🌟 THÊM MỚI: HIỂN THỊ NHÃN ĐI MUỘN/ĐÚNG GIỜ 🌟 */}
-                  <td className="px-6 py-4">
-                    {(() => {
-                      const status = getAttendanceStatus(log.time); // Đã sửa thành log.time để bắt đúng biến
-                      return (
-                        <span className={`px-2 py-1 text-[10px] font-bold border ${status.color} uppercase tracking-wider`}>
-                          {status.text}
-                        </span>
-                      );
-                    })()}
-                  </td>
+        {/* NỘI DUNG TAB 1: LOGS */}
+        {activeTab === 'logs' && (
+          <>
+            <div className="mb-4 flex items-center justify-between bg-[#15171c] p-4 border border-[#2d2d2d]">
+              <div className="flex items-center gap-3">
+                <Clock className="text-[#34d399] w-5 h-5" />
+                <span className="text-[12px] font-mono font-bold text-gray-300 uppercase tracking-wider">Quy định giờ vào ca:</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <input type="time" value={shiftTime} onChange={handleShiftTimeChange} className="bg-[#0a0b0d] border border-[#333] text-[#34d399] font-mono px-3 py-1 outline-none focus:border-[#34d399] transition-colors text-sm" />
+              </div>
+            </div>
+
+            <div className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
+                  <tr>
+                    <th className="px-6 py-3 font-normal">Họ và Tên</th>
+                    <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
+                    <th className="px-6 py-3 font-normal">Thời gian nhận diện</th>
+                    <th className="px-6 py-3 font-normal">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody className="font-sans text-xs">
+                  {logs.map((log, i) => (
+                    <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26]">
+                      <td className="px-6 py-4 text-[#f8fafc]">{log.name}</td>
+                      <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{log.student_code}</td>
+                      <td className="px-6 py-4 text-[#64748b] font-mono text-[10px]">{log.time}</td>
+                      <td className="px-6 py-4">
+                        {(() => {
+                          const status = getAttendanceStatus(log.time);
+                          return (
+                            <span className={`px-2 py-1 text-[10px] font-bold border ${status.color} uppercase tracking-wider`}>
+                              {status.text}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* NỘI DUNG TAB 2: DATABASE */}
+        {activeTab === 'users' && (
+          <div className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
+                <tr>
+                  <th className="px-6 py-3 font-normal">Ảnh gốc (MinIO)</th>
+                  <th className="px-6 py-3 font-normal">Họ và Tên</th>
+                  <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
+                  <th className="px-6 py-3 font-normal text-right">Thao tác</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="font-sans text-xs">
+                {users.map((u, i) => (
+                  <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26] group">
+                    <td className="px-6 py-3">
+                      <div className="w-10 h-10 rounded-md overflow-hidden border border-[#333] bg-[#0a0b0d]">
+                         {/* Link ảnh sẽ lấy từ MinIO */}
+                         <img src={u.image_url} alt={u.name} className="w-full h-full object-cover" />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-[#f8fafc] font-bold">{u.name}</td>
+                    <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{u.student_code}</td>
+                    
+                    <td className="px-6 py-4 text-right">
+                      <button 
+                        onClick={() => handleDeleteUser(u.student_code, u.name)}
+                        className="text-[#64748b] hover:text-[#f43f5e] hover:bg-[#f43f5e]/10 p-2 rounded transition-colors"
+                        title="Xóa nhân sự khỏi hệ thống"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                   <tr>
+                      <td colSpan="4" className="text-center py-8 text-[#64748b] font-mono text-[10px] uppercase">
+                        Chưa có dữ liệu sinh viên nào trong Database.
+                      </td>
+                   </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
       </div>
     </div>
   );

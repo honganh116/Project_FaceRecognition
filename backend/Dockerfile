@@ -1,4 +1,4 @@
-wsl --shutdownFROM python:3.10-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
