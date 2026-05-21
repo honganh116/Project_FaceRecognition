@@ -13,26 +13,32 @@ export default function AdminDashboard() {
   const [formData, setFormData] = useState({ name: '', student_code: '' });
   const [photo, setPhoto] = useState(null);
   
-  const [shiftTime, setShiftTime] = useState(localStorage.getItem('shiftTime') || '08:00');
+  const [shiftTime, setShiftTime] = useState('08:00');
 
-  const handleShiftTimeChange = (e) => {
-    const newTime = e.target.value;
-    setShiftTime(newTime);
-    localStorage.setItem('shiftTime', newTime); 
+  // --- LẤY GIỜ VÀO CA THỰC TẾ TỪ BACKEND ---
+  const fetchShiftTime = async () => {
+    try {
+      const res = await fetch('/api/settings/shift-time');
+      const data = await res.json();
+      if(data.shift_time) setShiftTime(data.shift_time);
+    } catch (e) { console.error("Lỗi lấy giờ vào ca", e); }
   };
 
-  const getAttendanceStatus = (timeString) => {
-    if (!timeString) return { text: "Không rõ", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
+  // --- CẬP NHẬT GIỜ VÀO CA LÊN TRỰC TIẾP DATABASE ---
+  const handleShiftTimeChange = async (e) => {
+    const newTime = e.target.value;
+    setShiftTime(newTime); // Cập nhật UI ngay lập tức cho mượt
     try {
-      const timePart = timeString.includes(' ') ? timeString.split(' ')[1] : timeString;
-      const timeOnly = timePart.substring(0, 5); 
-      
-      if (timeOnly > shiftTime) {
-        return { text: "Đi muộn", color: "text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30" };
-      }
-      return { text: "Đúng giờ", color: "text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30" };
-    } catch {
-      return { text: "Lỗi", color: "text-gray-500 bg-gray-500/10 border-gray-500/20" };
+      await fetch('/api/settings/shift-time', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({ shift_time: newTime })
+      });
+    } catch (err) {
+      console.error("Lỗi đồng bộ giờ vào ca lên server", err);
     }
   };
 
@@ -59,6 +65,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    fetchShiftTime(); // Gọi lấy cấu hình giờ khi mới vào trang
     if (activeTab === 'logs') fetchLogs();
     if (activeTab === 'users') fetchUsers();
   }, [activeTab]);
@@ -135,24 +142,21 @@ export default function AdminDashboard() {
     return acc;
   }, {});
 
-const lateStatsByPerson = logs.reduce((acc, log) => {
-    const status = getAttendanceStatus(log.time).text;
-    if (status === "Đi muộn") {
+  const lateStatsByPerson = logs.reduce((acc, log) => {
+    // SỬA CHỮA: Lấy trạng thái CỐ ĐỊNH từ Backend gửi lên, không tính toán lại!
+    if (log.status === "Đi muộn") {
        const datePart = log.time.split(' ')[0];
        const parts = datePart.split('/');
        if(parts.length === 3) {
            const monthYear = `${parts[1]}/${parts[2]}`;
            
-           // Nếu tháng này chưa có trong danh sách thì tạo mới
            if (!acc[monthYear]) acc[monthYear] = {};
            
-           // Nếu nhân sự này chưa bị ghi sổ trong tháng thì tạo mới
            const id = log.student_code;
            if (!acc[monthYear][id]) {
                acc[monthYear][id] = { name: log.name, count: 0 };
            }
            
-           // Tăng số lần đi muộn lên 1
            acc[monthYear][id].count += 1;
        }
     }
@@ -206,7 +210,6 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
            </motion.div>
         )}
 
-        {/* THIẾT KẾ TAB NAVIGATION */}
         <div className="flex gap-4 mb-6 border-b border-[#2d2d2d]">
           <button 
             onClick={() => setActiveTab('logs')}
@@ -222,7 +225,6 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
           </button>
         </div>
 
-        {/* NỘI DUNG TAB 1: LOGS (Đã được chia nhóm theo ngày) */}
         {activeTab === 'logs' && (
           <>
             <div className="mb-4 flex items-center justify-between bg-[#15171c] p-4 border border-[#2d2d2d]">
@@ -235,7 +237,6 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
               </div>
             </div>
 
-            {/* --- KHỐI HIỂN THỊ THỐNG KÊ ĐI MUỘN TỪNG NGƯỜI --- */}
             <div className="mb-6 space-y-4">
               {Object.keys(lateStatsByPerson).length === 0 ? (
                  <div className="bg-[#15171c] border border-[#2d2d2d] p-4 rounded-md text-center text-[#64748b] font-mono text-[10px] uppercase">
@@ -250,10 +251,9 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
                         Thống kê đi muộn - Tháng {month}
                       </span>
                     </div>
-                    {/* Danh sách người đi muộn */}
                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {Object.entries(persons)
-                        .sort((a, b) => b[1].count - a[1].count) // Sắp xếp ai đi muộn nhiều lên đầu
+                        .sort((a, b) => b[1].count - a[1].count) 
                         .map(([code, info]) => (
                         <div key={code} className="bg-[#0a0b0d] border border-[#2d2d2d] p-3 rounded flex items-center justify-between hover:border-[#f43f5e]/50 transition-colors">
                           <div>
@@ -282,7 +282,6 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
                 Object.keys(groupedLogs).map((date) => (
                   <div key={date} className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden rounded-md shadow-lg">
                     
-                    {/* Header Tiêu đề của từng ngày */}
                     <div className="bg-[#1c1f26] border-b border-[#333] px-6 py-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Calendar className="w-4 h-4 text-[#34d399]" />
@@ -295,7 +294,6 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
                       </span>
                     </div>
 
-                    {/* Bảng dữ liệu của riêng ngày đó */}
                     <table className="w-full text-left text-sm">
                       <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
                         <tr>
@@ -314,14 +312,10 @@ const lateStatsByPerson = logs.reduce((acc, log) => {
                                {log.time.includes(' ') ? log.time.split(' ')[1] : log.time}
                             </td>
                             <td className="px-6 py-4">
-                              {(() => {
-                                const status = getAttendanceStatus(log.time);
-                                return (
-                                  <span className={`px-3 py-1.5 text-[10px] font-bold border rounded-sm ${status.color} uppercase tracking-wider`}>
-                                    {status.text}
-                                  </span>
-                                );
-                              })()}
+                              {/* SỬA CHỮA: Hiển thị trực tiếp log.status từ Backend */}
+                              <span className={`px-3 py-1.5 text-[10px] font-bold border rounded-sm ${log.status === "Đi muộn" ? "text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30" : "text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30"} uppercase tracking-wider`}>
+                                {log.status}
+                              </span>
                             </td>
                           </tr>
                         ))}
