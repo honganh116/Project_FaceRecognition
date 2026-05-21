@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Save, CheckCircle2, Clock, Trash2, List, Database, Calendar } from 'lucide-react';
+import { UserPlus, Save, CheckCircle2, Clock, Trash2, List, Database, Calendar, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function AdminDashboard() {
@@ -135,6 +135,30 @@ export default function AdminDashboard() {
     return acc;
   }, {});
 
+const lateStatsByPerson = logs.reduce((acc, log) => {
+    const status = getAttendanceStatus(log.time).text;
+    if (status === "Đi muộn") {
+       const datePart = log.time.split(' ')[0];
+       const parts = datePart.split('/');
+       if(parts.length === 3) {
+           const monthYear = `${parts[1]}/${parts[2]}`;
+           
+           // Nếu tháng này chưa có trong danh sách thì tạo mới
+           if (!acc[monthYear]) acc[monthYear] = {};
+           
+           // Nếu nhân sự này chưa bị ghi sổ trong tháng thì tạo mới
+           const id = log.student_code;
+           if (!acc[monthYear][id]) {
+               acc[monthYear][id] = { name: log.name, count: 0 };
+           }
+           
+           // Tăng số lần đi muộn lên 1
+           acc[monthYear][id].count += 1;
+       }
+    }
+    return acc;
+  }, {});
+
   return (
     <div className="flex-1 bg-[#0a0b0d] text-slate-300 overflow-y-auto font-sans p-8">
       <div className="max-w-6xl mx-auto">
@@ -209,6 +233,44 @@ export default function AdminDashboard() {
               <div className="flex items-center gap-3">
                 <input type="time" value={shiftTime} onChange={handleShiftTimeChange} className="bg-[#0a0b0d] border border-[#333] text-[#34d399] font-mono px-3 py-1 outline-none focus:border-[#34d399] transition-colors text-sm" />
               </div>
+            </div>
+
+            {/* --- KHỐI HIỂN THỊ THỐNG KÊ ĐI MUỘN TỪNG NGƯỜI --- */}
+            <div className="mb-6 space-y-4">
+              {Object.keys(lateStatsByPerson).length === 0 ? (
+                 <div className="bg-[#15171c] border border-[#2d2d2d] p-4 rounded-md text-center text-[#64748b] font-mono text-[10px] uppercase">
+                    Không có nhân sự nào đi muộn.
+                 </div>
+              ) : (
+                Object.entries(lateStatsByPerson).map(([month, persons]) => (
+                  <div key={month} className="bg-[#15171c] border border-[#f43f5e]/30 rounded-md shadow-lg overflow-hidden">
+                    <div className="bg-[#f43f5e]/10 px-4 py-3 border-b border-[#f43f5e]/20 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-[#f43f5e]" />
+                      <span className="text-[#f43f5e] font-mono font-bold text-xs uppercase tracking-wider">
+                        Thống kê đi muộn - Tháng {month}
+                      </span>
+                    </div>
+                    {/* Danh sách người đi muộn */}
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {Object.entries(persons)
+                        .sort((a, b) => b[1].count - a[1].count) // Sắp xếp ai đi muộn nhiều lên đầu
+                        .map(([code, info]) => (
+                        <div key={code} className="bg-[#0a0b0d] border border-[#2d2d2d] p-3 rounded flex items-center justify-between hover:border-[#f43f5e]/50 transition-colors">
+                          <div>
+                            <p className="text-[#f8fafc] text-xs font-bold mb-1">{info.name}</p>
+                            <p className="text-[#34d399] font-mono text-[10px]">{code}</p>
+                          </div>
+                          <div className="flex flex-col items-end">
+                             <span className="bg-[#f43f5e]/10 px-3 py-1 rounded text-[#f43f5e] font-bold font-mono text-[11px] uppercase tracking-wider">
+                               {info.count} Lần
+                             </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
 
             <div className="space-y-6"> 

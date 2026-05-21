@@ -1,7 +1,7 @@
 import os
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 
 from sqlalchemy import create_engine, Column, Integer, String
@@ -145,6 +145,19 @@ def log_attendance(name, student_code):
     status = "Đi muộn" if time_only > get_shift_time() else "Đúng giờ"
     
     db.add(Attendance(name=name, student_code=student_code, time_logged=current_time_str, status=status))
+    
+    # --- LOGIC TỰ ĐỘNG XÓA LỊCH SỬ QUÁ 45 NGÀY ---
+    cutoff_date = now - timedelta(days=45)
+    all_logs = db.query(Attendance).all()
+    for log in all_logs:
+        try:
+            # Dịch chuỗi chữ ngược lại thành kiểu thời gian để so sánh
+            log_time = datetime.strptime(log.time_logged, "%d/%m/%Y %H:%M:%S")
+            if log_time < cutoff_date:
+                db.delete(log)
+        except ValueError:
+            pass # Bỏ qua nếu có dòng log nào bị lỗi định dạng
+
     db.commit()
     db.close()
 
@@ -186,7 +199,6 @@ def delete_user_by_code(student_code):
     db.close()
 
     return True, f"Đã xóa sạch sẽ toàn bộ dữ liệu của {student_code}!"
-
 
 def get_all_users():
     db = SessionLocal()
