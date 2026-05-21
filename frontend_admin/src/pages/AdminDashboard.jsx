@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Save, CheckCircle2, Clock, Trash2, List, Database } from 'lucide-react';
+import { UserPlus, Save, CheckCircle2, Clock, Trash2, List, Database, Calendar } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('logs'); // 'logs' hoặc 'users'
+  const [activeTab, setActiveTab] = useState('logs'); 
   
   const [logs, setLogs] = useState([]);
-  const [users, setUsers] = useState([]); // Dữ liệu nhân sự
+  const [users, setUsers] = useState([]); 
   
   const [isAdding, setIsAdding] = useState(false);
   const [addingStatus, setAddingStatus] = useState("idle"); 
@@ -58,7 +58,6 @@ export default function AdminDashboard() {
     } catch (error) { console.error("Lỗi lấy Nhân sự:", error); }
   };
 
-  // Gọi API tương ứng khi chuyển tab
   useEffect(() => {
     if (activeTab === 'logs') fetchLogs();
     if (activeTab === 'users') fetchUsers();
@@ -92,7 +91,6 @@ export default function AdminDashboard() {
           setAddingStatus("idle");
           setFormData({ name: '', student_code: '' });
           setPhoto(null);
-          // Tải lại cả 2 dữ liệu
           fetchLogs(); 
           fetchUsers();
         }, 2000);
@@ -104,7 +102,7 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteUser = async (studentCode, name) => {
-    if (!window.confirm(`NGUY HIỂM: Bạn có chắc chắn muốn xóa sinh viên [${name} - ${studentCode}] khỏi Database (Postgres, MinIO, Qdrant)?`)) {
+    if (!window.confirm(`NGUY HIỂM: Bạn có chắc chắn muốn xóa sinh viên [${name} - ${studentCode}] khỏi Database?`)) {
       return;
     }
 
@@ -118,7 +116,7 @@ export default function AdminDashboard() {
 
       if (res.ok) {
         alert("Đã xóa sạch dữ liệu của nhân sự này!");
-        fetchUsers(); // Cập nhật lại tab Database
+        fetchUsers(); 
       } else {
         alert(result.detail || result.error || "Lỗi không thể xóa!");
       }
@@ -126,6 +124,16 @@ export default function AdminDashboard() {
       alert("Lỗi kết nối Server!");
     }
   };
+
+  // Logic gom nhóm log theo ngày
+  const groupedLogs = logs.reduce((acc, log) => {
+    const date = log.time.includes(' ') ? log.time.split(' ')[0] : 'Không rõ ngày';
+    if (!acc[date]) {
+      acc[date] = []; 
+    }
+    acc[date].push(log); 
+    return acc;
+  }, {});
 
   return (
     <div className="flex-1 bg-[#0a0b0d] text-slate-300 overflow-y-auto font-sans p-8">
@@ -190,7 +198,7 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* NỘI DUNG TAB 1: LOGS */}
+        {/* NỘI DUNG TAB 1: LOGS (Đã được chia nhóm theo ngày) */}
         {activeTab === 'logs' && (
           <>
             <div className="mb-4 flex items-center justify-between bg-[#15171c] p-4 border border-[#2d2d2d]">
@@ -203,36 +211,63 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
-                  <tr>
-                    <th className="px-6 py-3 font-normal">Họ và Tên</th>
-                    <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
-                    <th className="px-6 py-3 font-normal">Thời gian nhận diện</th>
-                    <th className="px-6 py-3 font-normal">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody className="font-sans text-xs">
-                  {logs.map((log, i) => (
-                    <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26]">
-                      <td className="px-6 py-4 text-[#f8fafc]">{log.name}</td>
-                      <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{log.student_code}</td>
-                      <td className="px-6 py-4 text-[#64748b] font-mono text-[10px]">{log.time}</td>
-                      <td className="px-6 py-4">
-                        {(() => {
-                          const status = getAttendanceStatus(log.time);
-                          return (
-                            <span className={`px-2 py-1 text-[10px] font-bold border ${status.color} uppercase tracking-wider`}>
-                              {status.text}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-6"> 
+              {Object.keys(groupedLogs).length === 0 ? (
+                 <div className="bg-[#15171c] border border-[#2d2d2d] p-8 text-center text-[#64748b] font-mono text-[10px] uppercase rounded-md">
+                    Chưa có dữ liệu điểm danh.
+                 </div>
+              ) : (
+                Object.keys(groupedLogs).map((date) => (
+                  <div key={date} className="bg-[#15171c] border border-[#2d2d2d] overflow-hidden rounded-md shadow-lg">
+                    
+                    {/* Header Tiêu đề của từng ngày */}
+                    <div className="bg-[#1c1f26] border-b border-[#333] px-6 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Calendar className="w-4 h-4 text-[#34d399]" />
+                        <span className="font-mono text-sm font-bold text-[#f8fafc] tracking-wider">
+                          Ngày {date}
+                        </span>
+                      </div>
+                      <span className="bg-[#0a0b0d] border border-[#333] text-[#34d399] font-mono text-[10px] font-bold px-3 py-1 rounded-full uppercase">
+                        {groupedLogs[date].length} Lượt quét
+                      </span>
+                    </div>
+
+                    {/* Bảng dữ liệu của riêng ngày đó */}
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#0a0b0d] text-[#64748b] border-b border-[#333] font-mono text-[10px] uppercase tracking-wider">
+                        <tr>
+                          <th className="px-6 py-3 font-normal">Họ và Tên</th>
+                          <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
+                          <th className="px-6 py-3 font-normal">Giờ điểm danh</th>
+                          <th className="px-6 py-3 font-normal">Trạng thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="font-sans text-xs">
+                        {groupedLogs[date].map((log, i) => (
+                          <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26] transition-colors">
+                            <td className="px-6 py-4 text-[#f8fafc] font-medium">{log.name}</td>
+                            <td className="px-6 py-4 text-[#34d399] font-mono font-bold tracking-wider">{log.student_code}</td>
+                            <td className="px-6 py-4 text-[#64748b] font-mono font-bold text-[11px]">
+                               {log.time.includes(' ') ? log.time.split(' ')[1] : log.time}
+                            </td>
+                            <td className="px-6 py-4">
+                              {(() => {
+                                const status = getAttendanceStatus(log.time);
+                                return (
+                                  <span className={`px-3 py-1.5 text-[10px] font-bold border rounded-sm ${status.color} uppercase tracking-wider`}>
+                                    {status.text}
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+              )}
             </div>
           </>
         )}
@@ -254,7 +289,6 @@ export default function AdminDashboard() {
                   <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26] group">
                     <td className="px-6 py-3">
                       <div className="w-10 h-10 rounded-md overflow-hidden border border-[#333] bg-[#0a0b0d]">
-                         {/* Link ảnh sẽ lấy từ MinIO */}
                          <img src={u.image_url} alt={u.name} className="w-full h-full object-cover" />
                       </div>
                     </td>
