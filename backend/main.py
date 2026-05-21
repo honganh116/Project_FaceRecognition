@@ -10,14 +10,16 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import cv2
 import numpy as np
+import os # Thêm dòng này vào danh sách import ở trên cùng nếu chưa có
 
-# 1. Cấu hình bảo mật
-SECRET_KEY = "Sieu_Mat_Khau_Cua_Ban_O_Day"
+# 1. Cấu hình bảo mật (Đọc từ Két sắt .env)
+# os.getenv sẽ tìm mật khẩu trong file .env, nếu không có nó mới dùng tạm mật khẩu mặc định phía sau
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secret_key_do_not_use_in_prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "123" 
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "123_default")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
