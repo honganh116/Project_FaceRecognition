@@ -38,31 +38,43 @@ Dự án được chia thành các module độc lập để đảm bảo hiệu
 
 Yêu cầu: Máy tính đã cài đặt **Docker** và **Docker Compose**.
 
+## ⚙️ Hướng dẫn Triển khai (Local Environment)
+
+**Yêu cầu môi trường:** Máy tính đã cài đặt **Docker** và **Docker Compose**.
+
 ### 1. Clone dự án
 ```bash
-git clone https://github.com/honganh116/Project_FaceRecognition.git
+git clone [https://github.com/honganh116/Project_FaceRecognition.git](https://github.com/honganh116/Project_FaceRecognition.git)
 cd Project_FaceRecognition
+```
 
-2. Khởi động Máy chủ Backend (AI Engine)
+### 2. Khởi động toàn bộ Hệ thống
+Hệ thống sử dụng kiến trúc Microservices và được điều phối chung qua Nginx. Bạn không cần khởi chạy từng module riêng lẻ. 
 
-Yêu cầu: Máy tính đã cài đặt **Docker**.
-Mở Terminal tại thư mục `backend` và chạy lệnh sau:
+Mở Terminal tại thư mục gốc của dự án và chạy lệnh sau để build và khởi động tất cả các dịch vụ (Backend, Frontend, Databases):
+```bash
+docker-compose up -d --build
+```
+*(Đợi khoảng 1-3 phút để Docker tải image và khởi động các container).*
 
-docker build -t face-backend .
+### 3. Truy cập các Dịch vụ
+Sau khi hệ thống báo `Started`, các cổng nội bộ đã được đóng kín để bảo mật. Toàn bộ giao diện được điều phối qua cổng `80`:
 
-docker run -p 8000:8000 -v ${PWD}:/app face-backend
+* 📷 **Giao diện Terminal Quét mặt (Kiosk):** [http://localhost/](http://localhost/)
+* 🛡️ **Giao diện Quản trị viên (Admin):** [http://localhost/admin/](http://localhost/admin/)
+  * *Tài khoản mặc định:* `admin`
+  * *Mật khẩu mặc định:* `123`
+* 🗄️ **Kho lưu trữ Ảnh thô (MinIO Console):** [http://localhost:9001](http://localhost:9001)
+  * *Tài khoản:* `admin` | *Mật khẩu:* `password123`
+* 🧠 **Kho lưu trữ AI Vector (Qdrant Dashboard):** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
 
-3. Truy cập các dịch vụ
+### 4. Dừng hệ thống
+Để tắt hệ thống an toàn (dữ liệu nhân sự vẫn được giữ nguyên cho lần bật sau):
+```bash
+docker-compose down
+```
 
-Ứng dụng Web: http://localhost:3000
-
-Tài liệu API (Swagger): http://localhost:8000/docs
-
-Quản trị Database (pgAdmin): http://localhost:5050
-
-MinIO Console: http://localhost:9001
-
-4. Dừng hệ thống
-
+🚨 **Lưu ý (Nguy hiểm):** Nếu bạn muốn "reset" toàn bộ hệ thống, xóa sạch mọi dữ liệu Database, MinIO ảnh và Qdrant để làm lại từ đầu, hãy thêm cờ `-v`:
+```bash
 docker-compose down -v
-
+```
