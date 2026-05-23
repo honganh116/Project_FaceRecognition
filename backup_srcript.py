@@ -10,15 +10,14 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 def backup_postgres():
     print("--- Đang sao lưu PostgreSQL ---")
     filename = f"{BACKUP_DIR}/postgres_backup_{TIMESTAMP}.sql"
-    # Gọi lệnh pg_dump trực tiếp từ bên trong container postgres
-    cmd = f"docker exec project_postgres pg_dump -U admin ai_system_db > {filename}"
+    # Đã sửa lại đúng tên container 'postgres' và database 'ai_project'
+    cmd = f"docker exec postgres pg_dump -U admin ai_project > {filename}"
     subprocess.run(cmd, shell=True, check=True)
     print(f"Đã lưu file SQL tại: {filename}")
 
 def backup_qdrant():
     print("--- Đang sao lưu Qdrant (Vector DB) ---")
     filename = f"{BACKUP_DIR}/qdrant_backup_{TIMESTAMP}.snapshot"
-    # Gọi API của Qdrant để nó tự chụp một bản sao lưu (snapshot)
     import requests
     url = f"http://localhost:6333/collections/face_embeddings/snapshots"
     response = requests.post(url)

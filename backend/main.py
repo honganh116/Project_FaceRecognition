@@ -10,7 +10,10 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import cv2
 import numpy as np
-import os # Thêm dòng này vào danh sách import ở trên cùng nếu chưa có
+import os 
+import redis
+from rq import Queue
+from tasks import process_face_recognition
 
 # 1. Cấu hình bảo mật (Đọc từ Két sắt .env)
 # os.getenv sẽ tìm mật khẩu trong file .env, nếu không có nó mới dùng tạm mật khẩu mặc định phía sau
@@ -42,6 +45,12 @@ async def get_current_admin(token: str = Depends(oauth2_scheme)):
 
 # 🌟 2. KHỞI TẠO APP
 app = FastAPI(title="Hệ thống Nhận diện Khuôn mặt", version="1.0")
+
+init_db() 
+
+# --- KHỞI TẠO KẾT NỐI HÀNG ĐỢI (MESSAGE QUEUE) ---
+redis_conn = redis.Redis(host='redis', port=6379)
+task_queue = Queue('default', connection=redis_conn)
 
 # Khởi tạo Database Enterprise
 init_db() 
@@ -172,6 +181,9 @@ async def register_face(
         success, msg = register_user(name, student_code, embedding_vector, contents)
 
         if success:
+            # NÉM TÁC VỤ NẶNG VÀO HÀNG ĐỢI CHO WORKER XỬ LÝ NGẦM
+            task_queue.enqueue(process_face_recognition, f"minio_bucket/{student_code}.jpg", student_code)
+            
             return {"message": msg, "name": name, "student_code": student_code}
         else:
             return {"error": msg}

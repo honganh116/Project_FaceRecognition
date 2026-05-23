@@ -38,6 +38,26 @@ services:
       - minio
     restart: always
 
+  # =========================
+  # 1.5. Khởi chạy AI Worker (Xử lý ngầm)
+  # =========================
+  worker:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: face_worker
+    command: python worker.py 
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend:/app  # <--- BỔ SUNG DÒNG NÀY ĐỂ WORKER ĐỌC ĐƯỢC CODE MỚI
+    depends_on:
+      - redis
+      - backend
+    restart: always
+
   # 2. Giao diện Terminal Quét mặt (Cổng 3000)
   frontend_kiosk:
     build: 
