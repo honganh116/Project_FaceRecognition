@@ -7,7 +7,7 @@ Quy mô dự án: Xây dựng hệ thống nhận diện khuôn mặt thời gia
 | STT | Họ và Tên | Vai trò chính | Nhiệm vụ cụ thể |
 | :--- | :--- | :--- | :--- |
 | 1 | **Nguyễn Hồng Anh** <br>*(MSV: 24022255)* | AI & Core Backend | Viết API bằng FastAPI. Tích hợp DeepFace (OpenCV) để trích xuất vector khuôn mặt và xử lý logic so sánh. |
-| 2 | **Nguyễn Đức Bình** | Database & Message Queue | Thiết kế PostgreSQL (lưu User). Setup MinIO (lưu ảnh gốc) và Qdrant/Milvus (Vector DB). Làm Message Queue (Redis/RabbitMQ). |
+| 2 | **Nguyễn Đức Bình** <br>*(MSV: 24022269)* | Database & Message Queue | Thiết kế PostgreSQL (lưu User). Setup MinIO (lưu ảnh gốc) và Qdrant/Milvus (Vector DB). Làm Message Queue (Redis/RabbitMQ). |
 | 3 | **Phạm Gia Bảo** <br>*(MSV: 24022267)* | Frontend (Giao diện) | Xây dựng luồng Admin & User (ReactJS/VueJS). Xử lý luồng Stream Video WebSockets/WebRTC, vẽ Bounding Box. |
 | 4 | **Đào Gia Thế Vũ** <br>*(MSV: 24022491)* | DevOps, Tích hợp & Tài liệu | Viết `docker-compose.yml`, cấu hình Nginx (Load balancer). Ghép nối API Backend với Frontend. Viết Báo cáo & Slide. |
 
@@ -38,31 +38,44 @@ Dự án được chia thành các module độc lập để đảm bảo hiệu
 
 Yêu cầu: Máy tính đã cài đặt **Docker** và **Docker Compose**.
 
+## ⚙️ Hướng dẫn Triển khai (Local Environment)
+
+**Yêu cầu môi trường:** Máy tính đã cài đặt **Docker** và **Docker Compose**.
+
 ### 1. Clone dự án
 ```bash
-git clone https://github.com/honganh116/Project_FaceRecognition.git
-cd Project_FaceRecognition
+1. Chuẩn bị môi trường
+Hệ thống đã được đóng gói sẵn hoàn toàn trên Docker Hub. Bạn không cần tải mã nguồn.
+1. Tạo một thư mục trống (ví dụ: `BTL_FaceRecognition`).
+2. Tải và đặt 2 file `docker-compose.yml` , `.env` và nginx vào chung trong thư mục này.
+```
 
-2. Khởi động Máy chủ Backend (AI Engine)
+### 2. Khởi động toàn bộ Hệ thống
+Khởi động toàn bộ Hệ thống
+Hệ thống sử dụng kiến trúc Microservices. Bạn chỉ cần mở Terminal (hoặc Command Prompt/VS Code) tại thư mục chứa 2 file trên và chạy lệnh duy nhất sau:
+```bash
+docker-compose up -d
+```
+*(Đợi khoảng 1-3 phút để Docker tải image và khởi động các container).*
 
-Yêu cầu: Máy tính đã cài đặt **Docker**.
-Mở Terminal tại thư mục `backend` và chạy lệnh sau:
+### 3. Truy cập các Dịch vụ
+Sau khi hệ thống báo `Started`, các cổng nội bộ đã được đóng kín để bảo mật. Toàn bộ giao diện được điều phối qua cổng `80`:
 
-docker build -t face-backend .
+* 📷 **Giao diện Terminal Quét mặt (Kiosk):** [http://localhost/](http://localhost/)
+* 🛡️ **Giao diện Quản trị viên (Admin):** [http://localhost/admin/](http://localhost/admin/)
+  * *Tài khoản mặc định:* `admin`
+  * *Mật khẩu mặc định:* `123`
+* 🗄️ **Kho lưu trữ Ảnh thô (MinIO Console):** [http://localhost:9001](http://localhost:9001)
+  * *Tài khoản:* `admin` | *Mật khẩu:* `password123`
+* 🧠 **Kho lưu trữ AI Vector (Qdrant Dashboard):** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
 
-docker run -p 8000:8000 -v ${PWD}:/app face-backend
+### 4. Dừng hệ thống
+Để tắt hệ thống an toàn (dữ liệu nhân sự vẫn được giữ nguyên cho lần bật sau):
+```bash
+docker-compose down
+```
 
-3. Truy cập các dịch vụ
-
-Ứng dụng Web: http://localhost:3000
-
-Tài liệu API (Swagger): http://localhost:8000/docs
-
-Quản trị Database (pgAdmin): http://localhost:5050
-
-MinIO Console: http://localhost:9001
-
-4. Dừng hệ thống
-
+🚨 **Lưu ý (Nguy hiểm):** Nếu bạn muốn "reset" toàn bộ hệ thống, xóa sạch mọi dữ liệu Database, MinIO ảnh và Qdrant để làm lại từ đầu, hãy thêm cờ `-v`:
+```bash
 docker-compose down -v
-
+```
