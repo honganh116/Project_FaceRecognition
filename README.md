@@ -44,14 +44,15 @@ Yêu cầu: Máy tính đã cài đặt **Docker** và **Docker Compose**.
 
 ### 1. Clone dự án
 ```bash
-git clone [https://github.com/honganh116/Project_FaceRecognition.git](https://github.com/honganh116/Project_FaceRecognition.git)
-cd Project_FaceRecognition
+1. Chuẩn bị môi trường
+Hệ thống đã được đóng gói sẵn hoàn toàn trên Docker Hub. Bạn không cần tải mã nguồn.
+1. Tạo một thư mục trống (ví dụ: `BTL_FaceRecognition`).
+2. Tải và đặt 2 file `docker-compose.yml` và `.env` vào chung trong thư mục này.
 ```
 
 ### 2. Khởi động toàn bộ Hệ thống
-Hệ thống sử dụng kiến trúc Microservices và được điều phối chung qua Nginx. Bạn không cần khởi chạy từng module riêng lẻ. 
-
-Mở Terminal tại thư mục gốc của dự án và chạy lệnh sau để build và khởi động tất cả các dịch vụ (Backend, Frontend, Databases):
+Khởi động toàn bộ Hệ thống
+Hệ thống sử dụng kiến trúc Microservices. Bạn chỉ cần mở Terminal (hoặc Command Prompt/VS Code) tại thư mục chứa 2 file trên và chạy lệnh duy nhất sau:
 ```bash
 docker-compose up -d --build
 ```
