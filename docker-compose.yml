@@ -1,160 +1,166 @@
-version: '3.8'
-
 services:
-  # --- DATABASE CHÍNH (POSTGRESQL) ---
-  postgres:
-    image: postgres:16
-    container_name: facerecognition_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - ai_network
-
-  # --- BỘ NHỚ ĐỆM & MESSAGE BROKER (REDIS) ---
-  redis:
-    image: redis:7
-    container_name: facerecognition_redis
-    restart: unless-stopped
-    networks:
-      - ai_network
-
-  # --- VECTOR DATABASE CHO AI (QDRANT) ---
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: facerecognition_qdrant
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - ai_network
-
-  # --- KHO LƯU TRỮ ẢNH KHUÔN MẶT (MINIO) ---
-  minio:
-    image: quay.io/minio/aistor/minio:latest
-    container_name: facerecognition_minio
-    restart: unless-stopped
-    ports:
-      - "9000:9000" # API định tuyến ảnh
-      - "9001:9001" # Giao diện Console quản lý file
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-    networks:
-      - ai_network
-
-  # --- HỆ THỐNG XỬ LÝ TRUNG TÂM (BACKEND API) ---
+  # 1. Khởi chạy AI Backend
   backend:
-    image: vuxover/project_facerecognition-backend:latest
-    container_name: facerecognition_backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: face_backend
+    expose:
+      - "8000"
     environment:
+      - TZ=Asia/Ho_Chi_Minh
+      # Bơm biến môi trường từ Két sắt .env bên ngoài vào trong Container
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - DB_HOST=postgres
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      # PostgreSQL
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=ai_project
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password
+      # Redis
       - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Qdrant
       - QDRANT_HOST=qdrant
-      - MINIO_HOST=minio
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - QDRANT_PORT=6333
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=password123
+    volumes:
+      - ./backend:/app  
     depends_on:
       - postgres
       - redis
       - qdrant
       - minio
-    networks:
-      - ai_network
+    restart: always
 
-  # --- TIẾN TRÌNH XỬ LÝ NỀN / AI WORKER ---
+  # =========================
+  # 1.5. Khởi chạy AI Worker (Xử lý ngầm)
+  # =========================
   worker:
-    image: vuxover/project_facerecognition-worker:latest
-    container_name: facerecognition_worker
-    restart: unless-stopped
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: face_worker
+    command: python worker.py 
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DB_HOST=postgres
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      - TZ=Asia/Ho_Chi_Minh
       - REDIS_HOST=redis
-      - QDRANT_HOST=qdrant
-      - MINIO_HOST=minio
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend:/app  # <--- BỔ SUNG DÒNG NÀY ĐỂ WORKER ĐỌC ĐƯỢC CODE MỚI
     depends_on:
-      - backend
       - redis
-    networks:
-      - ai_network
-
-  # --- GIAO DIỆN NGƯỜI DÙNG CHÍNH (FRONTEND) ---
-  frontend:
-    image: vuxover/project_facerecognition-frontend:latest
-    container_name: facerecognition_frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    depends_on:
       - backend
-    networks:
-      - ai_network
+    restart: always
 
-  # --- GIAO DIỆN QUẢN TRỊ (FRONTEND ADMIN) ---
-  frontend_admin:
-    image: vuxover/project_facerecognition-frontend_admin:latest
-    container_name: facerecognition_frontend_admin
-    restart: unless-stopped
-    ports:
-      - "3001:3000" # Đổi port ngoài thành 3001 để không trùng với frontend chính
-    depends_on:
-      - backend
-    networks:
-      - ai_network
-
-  # --- GIAO DIỆN THIẾT BỊ ĐIỂM DANH (FRONTEND KIOSK) ---
+  # 2. Giao diện Terminal Quét mặt (Cổng 3000)
   frontend_kiosk:
-    image: vuxover/project_facerecognition-frontend_kiosk:latest
-    container_name: facerecognition_frontend_kiosk
-    restart: unless-stopped
-    ports:
-      - "3002:3000" # Đổi port ngoài thành 3002 để tránh xung đột
+    build: 
+      context: ./frontend_kiosk
+      dockerfile: Dockerfile
+    container_name: face_frontend_kiosk
+    expose:
+      - "80"
     depends_on:
       - backend
-    networks:
-      - ai_network
+    restart: always
 
-  # --- ĐIỀU PHỐI VÀ REVERSE PROXY (NGINX) ---
+  # 3. Giao diện Quản trị Admin (Cổng 4000)
+  frontend_admin:
+    build: 
+      context: ./frontend_admin
+      dockerfile: Dockerfile
+    container_name: face_frontend_admin
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    restart: always
+
+  # =========================
+  # PostgreSQL
+  # =========================
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ai_project
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: always
+
+  # =========================
+  # Redis
+  # =========================
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # =========================
+  # Qdrant
+  # =========================
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: always
+
+  # =========================
+  # MinIO
+  # =========================
+  minio:
+    image: quay.io/minio/aistor/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password123
+      # Enterprise License
+      MINIO_LICENSE: minio/certs/minio.license
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+      - ./licenses:/minio/certs
+    restart: always
+
+  # =========================
+  # Nginx
+  # =========================
   nginx:
     image: nginx:latest
-    container_name: facerecognition_nginx
-    restart: unless-stopped
+    container_name: nginx_proxy
     ports:
-      - "80:80"
+      - "80:80" # Chỉ mở duy nhất cổng 80 ra máy thật
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - frontend
-      - frontend_admin
       - frontend_kiosk
-    networks:
-      - ai_network
+      - frontend_admin
+      - backend
+    restart: always
 
+# =========================
+# Volumes
+# =========================
 volumes:
   postgres_data:
   qdrant_data:
   minio_data:
-
-networks:
-  ai_network:
-    driver: bridge
