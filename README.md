@@ -47,7 +47,7 @@ Yêu cầu: Máy tính đã cài đặt **Docker** và **Docker Compose**.
 1. Chuẩn bị môi trường
 Hệ thống đã được đóng gói sẵn hoàn toàn trên Docker Hub. Bạn không cần tải mã nguồn.
 1. Tạo một thư mục trống (ví dụ: `BTL_FaceRecognition`).
-2. Tải và đặt 2 file `docker-compose.yml` và `.env` vào chung trong thư mục này.
+2. Tải và đặt 2 file `docker-compose.yml` , `.env` và nginx vào chung trong thư mục này.
 ```
 
 ### 2. Khởi động toàn bộ Hệ thống
