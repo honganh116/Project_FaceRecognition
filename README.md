@@ -54,7 +54,7 @@ Hệ thống đã được đóng gói sẵn hoàn toàn trên Docker Hub. Bạn
 Khởi động toàn bộ Hệ thống
 Hệ thống sử dụng kiến trúc Microservices. Bạn chỉ cần mở Terminal (hoặc Command Prompt/VS Code) tại thư mục chứa 2 file trên và chạy lệnh duy nhất sau:
 ```bash
-docker-compose up -d --build
+docker-compose up -d
 ```
 *(Đợi khoảng 1-3 phút để Docker tải image và khởi động các container).*
 
