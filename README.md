@@ -7,7 +7,7 @@ Quy mô dự án: Xây dựng hệ thống nhận diện khuôn mặt thời gia
 | STT | Họ và Tên | Vai trò chính | Nhiệm vụ cụ thể |
 | :--- | :--- | :--- | :--- |
 | 1 | **Nguyễn Hồng Anh** <br>*(MSV: 24022255)* | AI & Core Backend | Viết API bằng FastAPI. Tích hợp DeepFace (OpenCV) để trích xuất vector khuôn mặt và xử lý logic so sánh. |
-| 2 | **Nguyễn Đức Bình** | Database & Message Queue | Thiết kế PostgreSQL (lưu User). Setup MinIO (lưu ảnh gốc) và Qdrant/Milvus (Vector DB). Làm Message Queue (Redis/RabbitMQ). |
+| 2 | **Nguyễn Đức Bình** <br>*(MSV: 24022269)* | Database & Message Queue | Thiết kế PostgreSQL (lưu User). Setup MinIO (lưu ảnh gốc) và Qdrant/Milvus (Vector DB). Làm Message Queue (Redis/RabbitMQ). |
 | 3 | **Phạm Gia Bảo** <br>*(MSV: 24022267)* | Frontend (Giao diện) | Xây dựng luồng Admin & User (ReactJS/VueJS). Xử lý luồng Stream Video WebSockets/WebRTC, vẽ Bounding Box. |
 | 4 | **Đào Gia Thế Vũ** <br>*(MSV: 24022491)* | DevOps, Tích hợp & Tài liệu | Viết `docker-compose.yml`, cấu hình Nginx (Load balancer). Ghép nối API Backend với Frontend. Viết Báo cáo & Slide. |
 
