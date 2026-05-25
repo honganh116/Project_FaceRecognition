@@ -45,7 +45,7 @@ Hệ thống đã được đóng gói và đẩy image lên **Docker Hub**. Gi�
 
 ### 1. Chuẩn bị môi trường
 1. Tạo một thư mục trống.
-2. Tải và đặt 3 file sau vào chung thư mục: `docker-compose.yml`, `.env`, và thư mục `nginx` (chứa file `nginx.conf`).
+2. Tải và đặt 4 file sau vào chung thư mục: `docker-compose.yml`, `.env`(tải .env.example rồi đổi tên  thành .env), thư mục licenses(chứa minio.license) và thư mục `nginx` (chứa file `nginx.conf`).
 
 ### 2. Khởi động toàn bộ Hệ thống
 Mở Terminal tại thư mục đó và chạy lệnh:
@@ -60,7 +60,7 @@ Sau khi hệ thống báo `Started`, các cổng nội bộ đã được đóng
 * 📷 **Giao diện Terminal Quét mặt (Kiosk):** [http://localhost/](http://localhost/)
 * 🛡️ **Giao diện Quản trị viên (Admin):** [http://localhost/admin/](http://localhost/admin/)
   * *Tài khoản mặc định:* `admin`
-  * *Mật khẩu mặc định:* `123`
+  * *Mật khẩu mặc định:* `admin123`
 * 🗄️ **Kho lưu trữ Ảnh thô (MinIO Console):** [http://localhost:9001](http://localhost:9001)
   * *Tài khoản:* `admin` | *Mật khẩu:* `password123`
 * 🧠 **Kho lưu trữ AI Vector (Qdrant Dashboard):** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
