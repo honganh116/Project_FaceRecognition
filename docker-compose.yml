@@ -1,7 +1,9 @@
 services:
+  # =========================
   # 1. Khởi chạy AI Backend
+  # =========================
   backend:
-    image: honganh116/faceid-backend:latest
+    image: vuxover/face_backend:latest
     container_name: face_backend
     expose:
       - "8000"
@@ -22,8 +24,6 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=password123
-    volumes:
-      - ./backend:/app  
     depends_on:
       - postgres
       - redis
@@ -31,25 +31,27 @@ services:
       - minio
     restart: always
 
+  # =========================
   # 1.5. Khởi chạy AI Worker (Xử lý ngầm)
+  # =========================
   worker:
-    image: honganh116/faceid-worker:latest
+    image: vuxover/face_backend:latest
     container_name: face_worker
     command: python worker.py 
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    volumes:
-      - ./backend:/app 
     depends_on:
       - redis
       - backend
     restart: always
 
-  # 2. Giao diện Terminal Quét mặt
+  # =========================
+  # 2. Giao diện Terminal Quét mặt (Cổng 80 ngầm)
+  # =========================
   frontend_kiosk:
-    image: honganh116/faceid-kiosk:latest
+    image: vuxover/face_frontend_kiosk:latest
     container_name: face_frontend_kiosk
     expose:
       - "80"
@@ -57,9 +59,11 @@ services:
       - backend
     restart: always
 
-  # 3. Giao diện Quản trị Admin
+  # =========================
+  # 3. Giao diện Quản trị Admin (Cổng 80 ngầm)
+  # =========================
   frontend_admin:
-    image: honganh116/faceid-admin:latest
+    image: vuxover/face_frontend_admin:latest
     container_name: face_frontend_admin
     expose:
       - "80"
@@ -68,7 +72,7 @@ services:
     restart: always
 
   # =========================
-  # SERVICES HẠ TẦNG (Giữ nguyên)
+  # PostgreSQL
   # =========================
   postgres:
     image: postgres:16
@@ -81,9 +85,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: always
 
+  # =========================
+  # Redis
+  # =========================
   redis:
     image: redis:7
     container_name: redis
@@ -91,6 +97,9 @@ services:
       - "6379:6379"
     restart: always
 
+  # =========================
+  # Qdrant
+  # =========================
   qdrant:
     image: qdrant/qdrant
     container_name: qdrant
@@ -100,6 +109,12 @@ services:
       - qdrant_data:/qdrant/storage
     restart: always
 
+  # =========================
+  # MinIO
+  # =========================
+  # =========================
+  # MinIO (Bản Enterprise của bạn)
+  # =========================
   minio:
     image: quay.io/minio/aistor/minio
     container_name: minio
@@ -107,20 +122,24 @@ services:
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password123
+      # Trỏ đường dẫn đọc file license
       MINIO_LICENSE: minio/certs/minio.license
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - minio_data:/data
-      - ./licenses:/minio/certs
+      - ./licenses:/minio/certs  # <--- BẠN MAP LẠI THƯ MỤC NÀY
     restart: always
 
+  # =========================
+  # Nginx (Load Balancer)
+  # =========================
   nginx:
     image: nginx:latest
     container_name: nginx_proxy
     ports:
-      - "80:80" 
+      - "80:80" # Chỉ mở duy nhất cổng 80 ra máy khách
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -129,6 +148,9 @@ services:
       - backend
     restart: always
 
+# =========================
+# Volumes
+# =========================
 volumes:
   postgres_data:
   qdrant_data:
