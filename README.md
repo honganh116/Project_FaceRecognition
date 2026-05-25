@@ -41,18 +41,15 @@ Yêu cầu: Máy tính đã cài đặt **Docker** và **Docker Compose**.
 ## ⚙️ Hướng dẫn Triển khai (Local Environment)
 
 **Yêu cầu môi trường:** Máy tính đã cài đặt **Docker** và **Docker Compose**.
+Hệ thống đã được đóng gói và đẩy image lên **Docker Hub**. Giảng viên không cần tải toàn bộ mã nguồn.
 
-### 1. Clone dự án
-```bash
-1. Chuẩn bị môi trường
-Hệ thống đã được đóng gói sẵn hoàn toàn trên Docker Hub. Bạn không cần tải mã nguồn.
-1. Tạo một thư mục trống (ví dụ: `BTL_FaceRecognition`).
-2. Tải và đặt 2 file `docker-compose.yml` , `.env` và nginx vào chung trong thư mục này.
-```
+
+### 1. Chuẩn bị môi trường
+1. Tạo một thư mục trống.
+2. Tải và đặt 3 file sau vào chung thư mục: `docker-compose.yml`, `.env`, và thư mục `nginx` (chứa file `nginx.conf`).
 
 ### 2. Khởi động toàn bộ Hệ thống
-Khởi động toàn bộ Hệ thống
-Hệ thống sử dụng kiến trúc Microservices. Bạn chỉ cần mở Terminal (hoặc Command Prompt/VS Code) tại thư mục chứa 2 file trên và chạy lệnh duy nhất sau:
+Mở Terminal tại thư mục đó và chạy lệnh:
 ```bash
 docker-compose up -d
 ```
