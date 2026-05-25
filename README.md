@@ -13,23 +13,22 @@ Quy mô dự án: Xây dựng hệ thống nhận diện khuôn mặt thời gia
 
 ---
 
-## 🚀 Kiến trúc Hệ thống (Microservices)
-
-Dự án được chia thành các module độc lập để đảm bảo hiệu suất xử lý luồng video thời gian thực:
-1. **Core AI Engine:** Nhận khung hình (frame), dùng FaceNet/MTCNN để trích xuất mảng 128 chiều (128-d vector).
-2. **Vector Search Engine:** Tìm kiếm vector tương đồng tốc độ cao bằng cơ sở dữ liệu chuyên dụng (Qdrant/Milvus).
-3. **Storage & Metadata:** Lưu trữ ảnh thô trên MinIO (Object Storage) và thông tin định danh nhân sự trên PostgreSQL.
-4. **Real-time Streaming:** Giao tiếp luồng video liên tục từ Client (Camera) lên Server thông qua WebRTC/WebSockets.
+## 🚀 Kiến trúc Hệ thống (Distributed Architecture)
+Hệ thống được module hóa thành **9 Container độc lập** để đảm bảo khả năng chịu tải:
+1. **Core AI Engine:** Tích hợp mô hình ArcFace 512D.
+2. **Asynchronous Worker:** Sử dụng Redis & RQ Worker xử lý AI ngầm.
+3. **Polyglot Storage:** Qdrant (Vector DB), Postgres (Metadata), MinIO (Object Storage).
+4. **Edge Computing:** Kiosk Client tự phân tích Bounding Box để giảm tải Server.
 
 ---
 
 ## 🛠️ Công nghệ & Ngôn ngữ
 * **Ngôn ngữ:** Python, JavaScript.
-* **AI/Computer Vision:** OpenCV, DeepFace (Facenet, MTCNN).
+* **AI/Computer Vision:** OpenCV, DeepFace (ArcFace, SSD).
 * **Backend Framework:** FastAPI.
-* **Frontend Framework:** ReactJS / VueJS, HTML5/CSS3.
-* **Cơ sở dữ liệu:** PostgreSQL (Relational), Qdrant / Milvus (Vector Search), MinIO (S3 Object Storage).
-* **Message Broker:** Redis / RabbitMQ.
+* **Frontend Framework:** ReactJS, TailwindCSS.
+* **Cơ sở dữ liệu:** PostgreSQL, Qdrant, MinIO.
+* **Message Broker:** Redis, Python-RQ.
 * **DevOps & Triển khai:** Docker, Docker Compose, Nginx.
 
 ---
