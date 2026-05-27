@@ -12,18 +12,18 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=ai_project
-      - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=password
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=admin
-      - MINIO_SECRET_KEY=password123
     depends_on:
       - postgres
       - redis
@@ -48,7 +48,7 @@ services:
     restart: always
 
   # =========================
-  # 2. Giao diện Terminal Quét mặt (Cổng 80 ngầm)
+  # 2. Giao diện Terminal Quét mặt
   # =========================
   frontend_kiosk:
     image: vuxover/face_frontend_kiosk:latest
@@ -60,7 +60,7 @@ services:
     restart: always
 
   # =========================
-  # 3. Giao diện Quản trị Admin (Cổng 80 ngầm)
+  # 3. Giao diện Quản trị Admin
   # =========================
   frontend_admin:
     image: vuxover/face_frontend_admin:latest
@@ -78,9 +78,9 @@ services:
     image: postgres:16
     container_name: postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ai_project
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -110,9 +110,6 @@ services:
     restart: always
 
   # =========================
-  # MinIO
-  # =========================
-  # =========================
   # MinIO (Bản Enterprise của bạn)
   # =========================
   minio:
@@ -120,16 +117,15 @@ services:
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password123
-      # Trỏ đường dẫn đọc file license
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
       MINIO_LICENSE: minio/certs/minio.license
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - minio_data:/data
-      - ./licenses:/minio/certs  # <--- BẠN MAP LẠI THƯ MỤC NÀY
+      - ./licenses:/minio/certs
     restart: always
 
   # =========================
@@ -139,7 +135,7 @@ services:
     image: nginx:latest
     container_name: nginx_proxy
     ports:
-      - "80:80" # Chỉ mở duy nhất cổng 80 ra máy khách
+      - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
