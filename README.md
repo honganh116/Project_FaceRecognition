@@ -44,9 +44,17 @@ Hệ thống đã được đóng gói và đẩy image lên **Docker Hub**. Gi�
 
 
 ### 1. Chuẩn bị môi trường
-1. Tạo một thư mục trống.
-2. Tải và đặt 4 file sau vào chung thư mục: `docker-compose.yml`, `.env`(tải .env.example rồi đổi tên  thành .env), thư mục licenses(chứa minio.license) và thư mục `nginx` (chứa file `nginx.conf`).
+## ⚙️ Hướng dẫn Triển khai (Local Environment)
 
+**Yêu cầu môi trường:** Máy tính đã cài đặt **Docker**, **Docker Compose** và **Git**.
+Hệ thống đã được đóng gói và đẩy các image lên **Docker Hub** để tối ưu hóa thời gian khởi chạy.
+
+### 1. Chuẩn bị môi trường
+1. Clone dự án về máy tính và di chuyển vào thư mục gốc:
+```bash
+git clone [https://github.com/honganh116/Project_FaceRecognition.git](https://github.com/honganh116/Project_FaceRecognition.git)
+cd Project_FaceRecognition
+2. đổi tên file .env.example thành .env
 ### 2. Khởi động toàn bộ Hệ thống
 Mở Terminal tại thư mục đó và chạy lệnh:
 ```bash
