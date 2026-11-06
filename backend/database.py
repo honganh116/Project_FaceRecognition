@@ -1,14 +1,33 @@
 import os
 import uuid
-import json
+import time
+import logging
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 import io
+from typing import Tuple, Optional, List, Dict, Any
 
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.sql import text
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance, Filter, FieldCondition, MatchValue
+from qdrant_client.models import (
+    PointStruct,
+    VectorParams,
+    Distance,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
 from minio import Minio
+from vision_pipeline import normalize_embedding
+
+# Cấu hình Logging chuẩn Enterprise
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("faceid.database")
 
 # 1. CẤU HÌNH BIẾN MÔI TRƯỜNG TỪ DOCKER
 PG_USER = os.getenv("POSTGRES_USER", "admin")
@@ -24,185 +43,387 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET = os.getenv("MINIO_SECRET_KEY", "password123")
 
-# 2. KHỞI TẠO KẾT NỐI
+ATTENDANCE_COOLDOWN_SECONDS = int(os.getenv("ATTENDANCE_COOLDOWN_SECONDS", "60"))
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "45"))
+
+# 2. KHỞI TẠO KẾT NỐI VỚI CONNECTION POOLING AN TOÀN
 DATABASE_URL = f"postgresql://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}"
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=1800,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Tên bảng đổi thành face_profiles để không đụng hàng với bạn Bình
+
+@contextmanager
+def get_db_session() -> Session:
+    """
+    Context Manager quản lý vòng đời Database Session an toàn:
+    Tự động rollback khi có ngoại lệ và luôn đóng kết nối tránh rò rỉ (Connection Leak).
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 class FaceProfile(Base):
-    __tablename__ = "face_profiles" 
+    __tablename__ = "face_profiles"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    student_code = Column(String, unique=True, index=True)
-    image_url = Column(String)
+    name = Column(String, index=True, nullable=False)
+    student_code = Column(String, unique=True, index=True, nullable=False)
+    image_url = Column(String, nullable=False)
+
 
 class Attendance(Base):
     __tablename__ = "attendance"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    student_code = Column(String)
-    time_logged = Column(String)
+    name = Column(String, index=True, nullable=False)
+    student_code = Column(String, index=True, nullable=False)
+    time_logged = Column(String, nullable=False)
     status = Column(String, default="Đúng giờ")
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
 
 class Settings(Base):
     __tablename__ = "settings"
     key = Column(String, primary_key=True, index=True)
-    value = Column(String)
+    value = Column(String, nullable=False)
 
-minio_client = Minio(MINIO_ENDPOINT, access_key=MINIO_ACCESS, secret_key=MINIO_SECRET, secure=False)
+
+minio_client = Minio(
+    MINIO_ENDPOINT,
+    access_key=MINIO_ACCESS,
+    secret_key=MINIO_SECRET,
+    secure=False,
+)
 BUCKET_NAME = "face-images"
 qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 COLLECTION_NAME = "face_embeddings"
 
-# 3. CÁC HÀM XỬ LÝ LÕI
-def init_db():
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    if not db.query(Settings).filter(Settings.key == "shift_time").first():
-        db.add(Settings(key="shift_time", value="08:00"))
-        db.commit()
-    db.close()
 
-    if not minio_client.bucket_exists(BUCKET_NAME):
-        minio_client.make_bucket(BUCKET_NAME)
+# 3. CÁC HÀM XỬ LÝ LÕI (CORE REPOSITORY)
+def init_db(max_retries: int = 5, retry_delay: float = 2.0) -> None:
+    """
+    Khởi tạo toàn bộ 3 tầng lưu trữ (PostgreSQL, MinIO, Qdrant)
+    kèm cơ chế Retry tự động chờ các container sẵn sàng khi mới bật Docker.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            # Đảm bảo cột created_at tồn tại cho bảng attendance cũ (Auto-Migration nhẹ)
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
+                    )
+                )
+
+            with get_db_session() as db:
+                if not db.query(Settings).filter(Settings.key == "shift_time").first():
+                    db.add(Settings(key="shift_time", value="08:00"))
+
+            if not minio_client.bucket_exists(BUCKET_NAME):
+                minio_client.make_bucket(BUCKET_NAME)
+
+            try:
+                qdrant_client.get_collection(COLLECTION_NAME)
+            except Exception:
+                qdrant_client.recreate_collection(
+                    collection_name=COLLECTION_NAME,
+                    vectors_config=VectorParams(size=512, distance=Distance.COSINE),
+                )
+
+            logger.info("✅ Hạ tầng Polyglot Storage (Postgres, Qdrant, MinIO) đã sẵn sàng!")
+            return
+        except Exception as err:
+            logger.warning(
+                f"⏳ Đang chờ Database khởi động (Lần thử {attempt}/{max_retries}): {err}"
+            )
+            if attempt == max_retries:
+                logger.error("❌ Không thể kết nối đầy đủ tới hạ tầng lưu trữ sau nhiều lần thử!")
+                raise
+            time.sleep(retry_delay)
+
+
+def check_storage_health() -> Dict[str, str]:
+    """Kiểm tra trạng thái kết nối thực tế của từng dịch vụ lưu trữ."""
+    health = {"postgres": "error", "qdrant": "error", "minio": "error"}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        health["postgres"] = "ok"
+    except Exception as e:
+        logger.warning(f"Healthcheck Postgres lỗi: {e}")
 
     try:
         qdrant_client.get_collection(COLLECTION_NAME)
-    except Exception:
-        qdrant_client.recreate_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=512, distance=Distance.COSINE),
+        health["qdrant"] = "ok"
+    except Exception as e:
+        logger.warning(f"Healthcheck Qdrant lỗi: {e}")
+
+    try:
+        if minio_client.bucket_exists(BUCKET_NAME):
+            health["minio"] = "ok"
+    except Exception as e:
+        logger.warning(f"Healthcheck MinIO lỗi: {e}")
+
+    return health
+
+
+def get_shift_time() -> str:
+    with get_db_session() as db:
+        setting = db.query(Settings).filter(Settings.key == "shift_time").first()
+        return setting.value if setting else "08:00"
+
+
+def update_shift_time(new_time: str) -> None:
+    with get_db_session() as db:
+        setting = db.query(Settings).filter(Settings.key == "shift_time").first()
+        if setting:
+            setting.value = new_time
+        else:
+            db.add(Settings(key="shift_time", value=new_time))
+    logger.info(f"Đã cập nhật giờ vào ca mới: {new_time}")
+
+
+def register_user(
+    name: str,
+    student_code: str,
+    embedding_vector: List[float],
+    image_bytes: bytes,
+) -> Tuple[bool, str, Optional[str]]:
+    clean_code = student_code.strip()
+    clean_name = name.strip()
+
+    with get_db_session() as db:
+        if db.query(FaceProfile).filter(FaceProfile.student_code == clean_code).first():
+            return False, "Lỗi: Mã sinh viên đã tồn tại!", None
+
+        # 1. Lưu ảnh gốc lên MinIO
+        image_name = f"{clean_code}_{uuid.uuid4().hex}.jpg"
+        minio_client.put_object(
+            BUCKET_NAME,
+            image_name,
+            io.BytesIO(image_bytes),
+            len(image_bytes),
+            content_type="image/jpeg",
         )
-    print("✅ Hạ tầng Enterprise đã khởi động thành công!")
+        image_url = f"/api/images/{image_name}"
 
-def get_shift_time():
-    db = SessionLocal()
-    setting = db.query(Settings).filter(Settings.key == "shift_time").first()
-    db.close()
-    return setting.value if setting else "08:00"
+        # 2. Lưu thông tin vào Postgres
+        new_user = FaceProfile(name=clean_name, student_code=clean_code, image_url=image_url)
+        db.add(new_user)
 
-def update_shift_time(new_time):
-    db = SessionLocal()
-    setting = db.query(Settings).filter(Settings.key == "shift_time").first()
-    if setting:
-        setting.value = new_time
-    else:
-        db.add(Settings(key="shift_time", value=new_time))
-    db.commit()
-    db.close()
-
-# Nhận thêm tham số image_bytes để lưu ảnh
-def register_user(name, student_code, embedding_vector, image_bytes):
-    db = SessionLocal()
-    if db.query(FaceProfile).filter(FaceProfile.student_code == student_code).first():
-        db.close()
-        return False, "Lỗi: Mã sinh viên đã tồn tại!"
-    
-    # Ném ảnh lên MinIO
-    image_name = f"{student_code}_{uuid.uuid4().hex}.jpg"
-    minio_client.put_object(BUCKET_NAME, image_name, io.BytesIO(image_bytes), len(image_bytes), content_type="image/jpeg")
-    image_url = f"http://{MINIO_ENDPOINT}/{BUCKET_NAME}/{image_name}"
-
-    # Lưu thông tin vào Postgres
-    new_user = FaceProfile(name=name, student_code=student_code, image_url=image_url)
-    db.add(new_user)
-    db.commit()
-    db.close()
-
-    # Lưu Vector vào Qdrant
+    # 3. Chuẩn hóa L2 và lưu Vector gốc vào Qdrant
+    norm_vector = normalize_embedding(embedding_vector)
     point_id = str(uuid.uuid4())
     qdrant_client.upsert(
         collection_name=COLLECTION_NAME,
-        points=[PointStruct(id=point_id, vector=embedding_vector, payload={"name": name, "student_code": student_code})]
+        points=[
+            PointStruct(
+                id=point_id,
+                vector=norm_vector,
+                payload={"name": clean_name, "student_code": clean_code, "variant": "original"},
+            )
+        ],
     )
-    return True, "Đăng ký khuôn mặt thành công!"
+    logger.info(f"Đã đăng ký nhân sự mới: {clean_name} ({clean_code})")
+    return True, "Đăng ký khuôn mặt thành công!", image_name
 
-def find_match_in_db(target_embedding, threshold_score=0.45):
-    # Đổi sang dùng query_points theo chuẩn Qdrant mới nhất
+
+def upsert_augmented_embedding(
+    name: str, student_code: str, embedding_vector: List[float], variant: str
+) -> None:
+    """Lưu thêm các vector tăng cường (Multi-Embedding) từ Background Worker vào Qdrant."""
+    norm_vector = normalize_embedding(embedding_vector)
+    point_id = str(uuid.uuid4())
+    qdrant_client.upsert(
+        collection_name=COLLECTION_NAME,
+        points=[
+            PointStruct(
+                id=point_id,
+                vector=norm_vector,
+                payload={"name": name, "student_code": student_code, "variant": variant},
+            )
+        ],
+    )
+
+
+def get_image_from_minio(image_name: str) -> bytes:
+    """Đọc bytes ảnh từ MinIO an toàn (chống Path Traversal)."""
+    safe_name = os.path.basename(image_name)
+    response = minio_client.get_object(BUCKET_NAME, safe_name)
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
+
+
+def find_match_in_db(
+    target_embedding: List[float], threshold_score: float = 0.45
+) -> Tuple[bool, Optional[Dict[str, Any]], float]:
+    norm_target = normalize_embedding(target_embedding)
     search_result = qdrant_client.query_points(
         collection_name=COLLECTION_NAME,
-        query=target_embedding,
-        limit=1
+        query=norm_target,
+        limit=3,
     )
-    
-    # Kiểm tra xem có kết quả trả về không
+
     if search_result and search_result.points:
         best_match = search_result.points[0]
-        # Phiên bản mới dùng thuộc tính score trực tiếp
-        if best_match.score >= threshold_score:
-            return True, best_match.payload, best_match.score
-        return False, None, best_match.score
-        
-    return False, None, 0
+        top_score = float(best_match.score)
 
-def log_attendance(name, student_code):
-    db = SessionLocal()
+        # Kiểm tra sự đồng thuận đa vector (Multi-Embedding Consensus)
+        same_person_hits = [
+            p
+            for p in search_result.points
+            if p.payload.get("student_code") == best_match.payload.get("student_code")
+            and p.score >= (threshold_score - 0.03)
+        ]
+        consensus_bonus = 0.02 if len(same_person_hits) >= 2 else 0.0
+        final_score = min(1.0, top_score + consensus_bonus)
+
+        if final_score >= threshold_score:
+            return True, best_match.payload, final_score
+        return False, None, final_score
+
+    return False, None, 0.0
+
+
+def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
+    """
+    Ghi nhận điểm danh với:
+    1. Cơ chế chống trùng lặp (Anti-Spam Cooldown 60s) nếu cùng 1 người đứng liên tục trước Kiosk.
+    2. Xóa lịch sử quá hạn (Data Retention 45 ngày) trực tiếp bằng truy vấn SQL hiệu năng cao.
+    """
     now = datetime.now()
     current_time_str = now.strftime("%d/%m/%Y %H:%M:%S")
     time_only = now.strftime("%H:%M")
-    status = "Đi muộn" if time_only > get_shift_time() else "Đúng giờ"
-    
-    db.add(Attendance(name=name, student_code=student_code, time_logged=current_time_str, status=status))
-    
-    # --- LOGIC TỰ ĐỘNG XÓA LỊCH SỬ QUÁ 45 NGÀY ---
-    cutoff_date = now - timedelta(days=45)
-    all_logs = db.query(Attendance).all()
-    for log in all_logs:
-        try:
-            # Dịch chuỗi chữ ngược lại thành kiểu thời gian để so sánh
-            log_time = datetime.strptime(log.time_logged, "%d/%m/%Y %H:%M:%S")
-            if log_time < cutoff_date:
-                db.delete(log)
-        except ValueError:
-            pass # Bỏ qua nếu có dòng log nào bị lỗi định dạng
+    shift_time = get_shift_time()
+    status = "Đi muộn" if time_only > shift_time else "Đúng giờ"
 
-    db.commit()
-    db.close()
+    with get_db_session() as db:
+        # 1. Kiểm tra Cooldown chống ghi trùng liên tiếp trong vòng ATTENDANCE_COOLDOWN_SECONDS
+        recent_cutoff = now - timedelta(seconds=ATTENDANCE_COOLDOWN_SECONDS)
+        recent_log = (
+            db.query(Attendance)
+            .filter(
+                Attendance.student_code == student_code,
+                Attendance.created_at >= recent_cutoff,
+            )
+            .order_by(Attendance.id.desc())
+            .first()
+        )
+        if recent_log:
+            return {
+                "is_duplicate": True,
+                "time_logged": recent_log.time_logged,
+                "status": recent_log.status,
+            }
 
-def get_all_logs():
-    db = SessionLocal()
-    logs = db.query(Attendance).order_by(Attendance.id.desc()).limit(50).all()
-    db.close()
-    return [{"name": l.name, "student_code": l.student_code, "time": l.time_logged, "status": l.status} for l in logs]
+        # 2. Thêm bản ghi điểm danh mới
+        db.add(
+            Attendance(
+                name=name,
+                student_code=student_code,
+                time_logged=current_time_str,
+                status=status,
+                created_at=now,
+            )
+        )
 
-def delete_user_by_code(student_code):
-    db = SessionLocal()
-    # Tìm xem sinh viên có tồn tại trong Postgres không
-    user = db.query(FaceProfile).filter(FaceProfile.student_code == student_code).first()
-    if not user:
-        db.close()
-        return False, "Không tìm thấy mã sinh viên này!"
+        # 3. Xóa nhanh các bản ghi quá 45 ngày bằng SQL trực tiếp trên cột indexed created_at
+        cutoff_date = now - timedelta(days=RETENTION_DAYS)
+        db.query(Attendance).filter(Attendance.created_at < cutoff_date).delete(
+            synchronize_session=False
+        )
 
-    # 1. XÓA ẢNH TRÊN MINIO
-    image_name = user.image_url.split('/')[-1] # Tách lấy tên file từ đường link URL
+    logger.info(f"Điểm danh: {name} ({student_code}) - {status} lúc {current_time_str}")
+    return {
+        "is_duplicate": False,
+        "time_logged": current_time_str,
+        "status": status,
+    }
+
+
+def get_all_logs(limit: int = 100) -> List[Dict[str, Any]]:
+    with get_db_session() as db:
+        logs = db.query(Attendance).order_by(Attendance.id.desc()).limit(limit).all()
+        return [
+            {
+                "name": l.name,
+                "student_code": l.student_code,
+                "time": l.time_logged,
+                "status": l.status,
+            }
+            for l in logs
+        ]
+
+
+def delete_user_by_code(student_code: str) -> Tuple[bool, str]:
+    with get_db_session() as db:
+        user = (
+            db.query(FaceProfile)
+            .filter(FaceProfile.student_code == student_code)
+            .first()
+        )
+        if not user:
+            return False, "Không tìm thấy mã sinh viên này!"
+
+        image_name = os.path.basename(user.image_url)
+        db.delete(user)
+
+    # 1. Xóa ảnh trên MinIO
     try:
         minio_client.remove_object(BUCKET_NAME, image_name)
     except Exception as e:
-        print(f"Lỗi xóa MinIO: {e}")
+        logger.warning(f"Lỗi xóa ảnh MinIO ({image_name}): {e}")
 
-    # 2. XÓA BỘ NÃO TRONG QDRANT
+    # 2. Xóa toàn bộ Vector (Gốc + Augmented) trong Qdrant
     try:
         qdrant_client.delete(
             collection_name=COLLECTION_NAME,
             points_selector=Filter(
-                must=[FieldCondition(key="student_code", match=MatchValue(value=student_code))]
-            )
+                must=[
+                    FieldCondition(
+                        key="student_code", match=MatchValue(value=student_code)
+                    )
+                ]
+            ),
         )
     except Exception as e:
-        print(f"Lỗi xóa Qdrant: {e}")
+        logger.warning(f"Lỗi xóa vector Qdrant ({student_code}): {e}")
 
-    # 3. XÓA THÔNG TIN TRONG POSTGRES
-    db.delete(user)
-    db.commit()
-    db.close()
-
+    logger.info(f"Đã xóa nhân sự {student_code} trên cả 3 tầng lưu trữ.")
     return True, f"Đã xóa sạch sẽ toàn bộ dữ liệu của {student_code}!"
 
-def get_all_users():
-    db = SessionLocal()
-    # Lấy danh sách từ bảng FaceProfile (Bảng chứa dữ liệu nhân sự đã đăng ký)
-    users = db.query(FaceProfile).order_by(FaceProfile.id.desc()).all()
-    db.close()
-    return [{"id": u.id, "name": u.name, "student_code": u.student_code, "image_url": u.image_url} for u in users]
+
+def get_all_users() -> List[Dict[str, Any]]:
+    with get_db_session() as db:
+        users = db.query(FaceProfile).order_by(FaceProfile.id.desc()).all()
+        result = []
+        for u in users:
+            img_url = u.image_url or ""
+            if img_url and not img_url.startswith("/api/images/"):
+                filename = os.path.basename(img_url)
+                img_url = f"/api/images/{filename}"
+            result.append(
+                {
+                    "id": u.id,
+                    "name": u.name,
+                    "student_code": u.student_code,
+                    "image_url": img_url,
+                }
+            )
+        return result

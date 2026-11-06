@@ -2,56 +2,58 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Slide Giới Thiệu Dự Án</title>
+    <title>Slide Giới Thiệu Dự Án - FaceID Enterprise AI v2.1</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; padding: 40px; background: #0a0b0d; color: #f8fafc; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; box-sizing: border-box; }
-        .container { width: 100%; max-width: 1400px; background: #15171c; border: 2px solid #2d2d2d; padding: 50px; border-radius: 12px; box-shadow: 0 20px 50px rgba(52,211,153,0.1); position: relative; overflow: hidden; }
+        body { margin: 0; padding: 40px; background: #0a0b0d; color: #f8fafc; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; justify-content: center; min-height: 100vh; box-sizing: border-box; }
+        .container { width: 100%; max-width: 1400px; background: #15171c; border: 2px solid #2d2d2d; padding: 48px; border-radius: 12px; box-shadow: 0 20px 50px rgba(52,211,153,0.12); position: relative; overflow: hidden; }
         .container::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #34d399, #3b82f6); }
-        .title { font-size: 42px; font-weight: 800; color: #34d399; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }
-        .subtitle { font-size: 20px; color: #94a3b8; margin-bottom: 40px; border-bottom: 1px solid #333; padding-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .badge { display: inline-block; background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.4); color: #34d399; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 1.5px; }
+        .title { font-size: 40px; font-weight: 800; color: #34d399; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }
+        .subtitle { font-size: 18px; color: #94a3b8; margin-bottom: 36px; border-bottom: 1px solid #333; padding-bottom: 20px; line-height: 1.6; }
+        .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 36px; }
         .box { background: #0a0b0d; border: 1px solid #333; padding: 25px; border-radius: 8px; }
-        .box-title { color: #3b82f6; font-size: 22px; font-weight: 700; margin-bottom: 20px; text-transform: uppercase; }
-        .checklist { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .checklist li { display: flex; align-items: center; font-size: 16px; }
-        .checklist li::before { content: '✓'; color: #34d399; margin-right: 10px; font-weight: bold; font-size: 20px; }
+        .box-title { color: #3b82f6; font-size: 20px; font-weight: 700; margin-bottom: 20px; text-transform: uppercase; }
+        .checklist { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .checklist li { display: flex; align-items: center; font-size: 14px; color: #e2e8f0; }
+        .checklist li::before { content: '✓'; color: #34d399; margin-right: 10px; font-weight: bold; font-size: 18px; }
         .team-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .team-table th, .team-table td { text-align: left; padding: 12px; border-bottom: 1px solid #2d2d2d; font-size: 16px; }
+        .team-table th, .team-table td { text-align: left; padding: 12px; border-bottom: 1px solid #2d2d2d; font-size: 15px; }
         .team-table th { color: #94a3b8; font-weight: normal; }
         .highlight { color: #34d399; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="badge">Enterprise Microservices &amp; Vision Pipeline v2.1</div>
         <div class="title">HỆ THỐNG NHẬN DIỆN KHUÔN MẶT THỜI GIAN THỰC</div>
-        <div class="subtitle">Mục đích: Giải pháp chấm công "Không chạm" & Quản trị nhân sự số hóa với Kiến trúc Phân tán.</div>
+        <div class="subtitle">Giải pháp chấm công "Không chạm" (Auto-Scan Edge) tích hợp Chống giả mạo (Hybrid Anti-Spoofing), Cân bằng sáng CLAHE &amp; Lưu trữ đa tầng (Polyglot Persistence).</div>
         
         <div class="grid">
             <div class="box">
-                <div class="box-title">⚙️ Checklist Công Nghệ (Enterprise)</div>
+                <div class="box-title">⚙️ Công Nghệ &amp; Nâng Cấp AI Cốt Lõi</div>
                 <ul class="checklist">
-                    <li>ArcFace 512D (AI Core)</li>
-                    <li>FastAPI (Backend)</li>
-                    <li>ReactJS (Frontend Edge)</li>
-                    <li>Qdrant (Vector DB)</li>
-                    <li>PostgreSQL (Metadata)</li>
-                    <li>MinIO (Object Storage)</li>
-                    <li>Redis (Message Queue)</li>
-                    <li>Nginx (Load Balancer)</li>
-                    <li>Docker & Compose</li>
-                    <li>Python RQ (Background Worker)</li>
+                    <li>ArcFace 512D + L2 Norm</li>
+                    <li>CLAHE Auto-HDR &amp; Gamma</li>
+                    <li>Anti-Spoofing (2D FFT + YCrCb)</li>
+                    <li>Multi-Embedding RQ Worker</li>
+                    <li>Edge Auto-Scan Kiosk HUD</li>
+                    <li>Laplacian Blur Filter</li>
+                    <li>Qdrant Vector Consensus</li>
+                    <li>PostgreSQL 16 (Connection Pool)</li>
+                    <li>MinIO Object Storage Proxy</li>
+                    <li>Nginx Reverse Proxy &amp; Docker</li>
                 </ul>
             </div>
             
             <div class="box">
-                <div class="box-title">👥 Nhóm: Thực Hành Phát Triển TTNT</div>
+                <div class="box-title">👥 Đội Ngũ Phát Triển Dự Án</div>
                 <table class="team-table">
                     <tr><th>Họ và tên</th><th>Vai trò đảm nhiệm</th></tr>
-                    <tr><td class="highlight">Nguyễn Hồng Anh</td><td>AI & Core Backend API</td></tr>
-                    <tr><td class="highlight">Nguyễn Đức Bình</td><td>Polyglot Database & Queue</td></tr>
-                    <tr><td class="highlight">Phạm Gia Bảo</td><td>Frontend & Edge Computing</td></tr>
-                    <tr><td class="highlight">Đào Gia Thế Vũ</td><td>DevOps, Proxy & Tích hợp</td></tr>
+                    <tr><td class="highlight">Nguyễn Hồng Anh</td><td>AI Core, Anti-Spoofing &amp; FastAPI</td></tr>
+                    <tr><td class="highlight">Nguyễn Đức Bình</td><td>Polyglot Database &amp; Redis RQ</td></tr>
+                    <tr><td class="highlight">Phạm Gia Bảo</td><td>Frontend ReactJS &amp; Edge Auto-Scan</td></tr>
+                    <tr><td class="highlight">Đào Gia Thế Vũ</td><td>DevOps, Nginx Proxy &amp; Tài liệu</td></tr>
                 </table>
             </div>
         </div>

@@ -3,10 +3,13 @@ services:
   # 1. Khởi chạy AI Backend
   # =========================
   backend:
+    build: ./backend
     image: vuxover/face_backend:latest
     container_name: face_backend
     expose:
       - "8000"
+    volumes:
+      - ./backend:/app
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SECRET_KEY=${SECRET_KEY}
@@ -32,18 +35,33 @@ services:
     restart: always
 
   # =========================
-  # 1.5. Khởi chạy AI Worker (Xử lý ngầm)
+  # 1.5. Khởi chạy AI Worker (Xử lý ngầm Multi-Embedding)
   # =========================
   worker:
+    build: ./backend
     image: vuxover/face_backend:latest
     container_name: face_worker
-    command: python worker.py 
+    command: python worker.py
+    volumes:
+      - ./backend:/app
     environment:
       - TZ=Asia/Ho_Chi_Minh
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - MINIO_ENDPOINT=minio:9000
     depends_on:
       - redis
+      - qdrant
+      - minio
       - backend
     restart: always
 
@@ -51,6 +69,7 @@ services:
   # 2. Giao diện Terminal Quét mặt
   # =========================
   frontend_kiosk:
+    build: ./frontend_kiosk
     image: vuxover/face_frontend_kiosk:latest
     container_name: face_frontend_kiosk
     expose:
@@ -63,6 +82,7 @@ services:
   # 3. Giao diện Quản trị Admin
   # =========================
   frontend_admin:
+    build: ./frontend_admin
     image: vuxover/face_frontend_admin:latest
     container_name: face_frontend_admin
     expose:
@@ -110,7 +130,7 @@ services:
     restart: always
 
   # =========================
-  # MinIO (Bản Enterprise của bạn)
+  # MinIO (Object Storage)
   # =========================
   minio:
     image: quay.io/minio/aistor/minio
@@ -129,7 +149,7 @@ services:
     restart: always
 
   # =========================
-  # Nginx (Load Balancer)
+  # Nginx (Load Balancer / Reverse Proxy)
   # =========================
   nginx:
     image: nginx:latest
