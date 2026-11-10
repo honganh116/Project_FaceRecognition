@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import CameraView from './pages/CameraView';
+import PortalPage from './pages/PortalPage';
 
 function App() {
   return (
@@ -10,6 +11,7 @@ function App() {
         <Navigation />
         <Routes>
           <Route path="/" element={<CameraView />} />
+          <Route path="/portal" element={<PortalPage />} />
         </Routes>
       </div>
     </Router>

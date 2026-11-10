@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import io
 from typing import Tuple, Optional, List, Dict, Any
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import text
 from qdrant_client import QdrantClient
@@ -91,6 +91,8 @@ class Attendance(Base):
     student_code = Column(String, index=True, nullable=False)
     time_logged = Column(String, nullable=False)
     status = Column(String, default="Đúng giờ")
+    check_type = Column(String, default="Check-in")
+    work_hours = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.now, index=True)
 
 
@@ -120,17 +122,29 @@ def init_db(max_retries: int = 5, retry_delay: float = 2.0) -> None:
     for attempt in range(1, max_retries + 1):
         try:
             Base.metadata.create_all(bind=engine)
-            # Đảm bảo cột created_at tồn tại cho bảng attendance cũ (Auto-Migration nhẹ)
+            # Auto-Migration nhẹ đảm bảo tương thích với bảng attendance cũ
             with engine.begin() as conn:
                 conn.execute(
                     text(
                         "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
                     )
                 )
+                conn.execute(
+                    text(
+                        "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS check_type VARCHAR(30) DEFAULT 'Check-in';"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS work_hours FLOAT DEFAULT 0.0;"
+                    )
+                )
 
             with get_db_session() as db:
                 if not db.query(Settings).filter(Settings.key == "shift_time").first():
                     db.add(Settings(key="shift_time", value="08:00"))
+                if not db.query(Settings).filter(Settings.key == "shift_end_time").first():
+                    db.add(Settings(key="shift_end_time", value="17:30"))
 
             if not minio_client.bucket_exists(BUCKET_NAME):
                 minio_client.make_bucket(BUCKET_NAME)
@@ -303,18 +317,20 @@ def find_match_in_db(
 
 def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
     """
-    Ghi nhận điểm danh với:
-    1. Cơ chế chống trùng lặp (Anti-Spam Cooldown 60s) nếu cùng 1 người đứng liên tục trước Kiosk.
-    2. Xóa lịch sử quá hạn (Data Retention 45 ngày) trực tiếp bằng truy vấn SQL hiệu năng cao.
+    Nghiệp vụ Chấm công Thông minh (Check-in / Check-out & Tính giờ làm):
+    1. Chống spam liên tiếp trong vòng 60 giây (Cooldown).
+    2. Nếu chưa có bản ghi nào trong ngày hôm nay -> Ghi nhận 'Check-in' (Đúng giờ / Đi muộn).
+    3. Nếu đã có 'Check-in' trong ngày -> Tự động ghi nhận 'Check-out' (Tan ca) và tính tổng số giờ làm việc (work_hours).
+    4. Tự động dọn dẹp dữ liệu quá 45 ngày bằng truy vấn SQL trực tiếp.
     """
     now = datetime.now()
     current_time_str = now.strftime("%d/%m/%Y %H:%M:%S")
+    today_prefix = now.strftime("%d/%m/%Y")
     time_only = now.strftime("%H:%M")
     shift_time = get_shift_time()
-    status = "Đi muộn" if time_only > shift_time else "Đúng giờ"
 
     with get_db_session() as db:
-        # 1. Kiểm tra Cooldown chống ghi trùng liên tiếp trong vòng ATTENDANCE_COOLDOWN_SECONDS
+        # 1. Kiểm tra Cooldown chống ghi trùng liên tiếp trong vòng 60 giây
         recent_cutoff = now - timedelta(seconds=ATTENDANCE_COOLDOWN_SECONDS)
         recent_log = (
             db.query(Attendance)
@@ -330,34 +346,63 @@ def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
                 "is_duplicate": True,
                 "time_logged": recent_log.time_logged,
                 "status": recent_log.status,
+                "check_type": recent_log.check_type or "Check-in",
+                "work_hours": recent_log.work_hours or 0.0,
             }
 
-        # 2. Thêm bản ghi điểm danh mới
+        # 2. Kiểm tra xem hôm nay nhân sự đã Check-in chưa
+        first_today_log = (
+            db.query(Attendance)
+            .filter(
+                Attendance.student_code == student_code,
+                Attendance.time_logged.like(f"{today_prefix}%"),
+            )
+            .order_by(Attendance.id.asc())
+            .first()
+        )
+
+        if not first_today_log:
+            check_type = "Check-in"
+            status = "Đi muộn" if time_only > shift_time else "Đúng giờ"
+            work_hours = 0.0
+        else:
+            check_type = "Check-out"
+            checkin_time = first_today_log.created_at or now
+            elapsed_hours = max(0.01, (now - checkin_time).total_seconds() / 3600.0)
+            work_hours = round(elapsed_hours, 2)
+            status = "Tan ca"
+
         db.add(
             Attendance(
                 name=name,
                 student_code=student_code,
                 time_logged=current_time_str,
                 status=status,
+                check_type=check_type,
+                work_hours=work_hours,
                 created_at=now,
             )
         )
 
-        # 3. Xóa nhanh các bản ghi quá 45 ngày bằng SQL trực tiếp trên cột indexed created_at
+        # 3. Xóa nhanh các bản ghi quá 45 ngày bằng SQL trực tiếp
         cutoff_date = now - timedelta(days=RETENTION_DAYS)
         db.query(Attendance).filter(Attendance.created_at < cutoff_date).delete(
             synchronize_session=False
         )
 
-    logger.info(f"Điểm danh: {name} ({student_code}) - {status} lúc {current_time_str}")
+    logger.info(
+        f"Điểm danh [{check_type}]: {name} ({student_code}) - {status} ({work_hours}h) lúc {current_time_str}"
+    )
     return {
         "is_duplicate": False,
         "time_logged": current_time_str,
         "status": status,
+        "check_type": check_type,
+        "work_hours": work_hours,
     }
 
 
-def get_all_logs(limit: int = 100) -> List[Dict[str, Any]]:
+def get_all_logs(limit: int = 200) -> List[Dict[str, Any]]:
     with get_db_session() as db:
         logs = db.query(Attendance).order_by(Attendance.id.desc()).limit(limit).all()
         return [
@@ -366,9 +411,63 @@ def get_all_logs(limit: int = 100) -> List[Dict[str, Any]]:
                 "student_code": l.student_code,
                 "time": l.time_logged,
                 "status": l.status,
+                "check_type": l.check_type or "Check-in",
+                "work_hours": round(float(l.work_hours or 0.0), 2),
             }
             for l in logs
         ]
+
+
+def get_employee_summary(student_code: str) -> Optional[Dict[str, Any]]:
+    """Tra cứu hồ sơ cá nhân & thống kê chấm công cho Cổng Nhân sự Tự phục vụ (Self-Service App)."""
+    clean_code = student_code.strip()
+    with get_db_session() as db:
+        profile = (
+            db.query(FaceProfile)
+            .filter(FaceProfile.student_code == clean_code)
+            .first()
+        )
+        if not profile:
+            return None
+
+        logs = (
+            db.query(Attendance)
+            .filter(Attendance.student_code == clean_code)
+            .order_by(Attendance.id.desc())
+            .limit(60)
+            .all()
+        )
+
+        img_url = profile.image_url or ""
+        if img_url and not img_url.startswith("/api/images/"):
+            img_url = f"/api/images/{os.path.basename(img_url)}"
+
+        total_checkins = sum(1 for l in logs if (l.check_type or "Check-in") == "Check-in")
+        late_count = sum(1 for l in logs if l.status == "Đi muộn")
+        on_time_count = sum(1 for l in logs if l.status == "Đúng giờ")
+        total_hours = round(sum(float(l.work_hours or 0.0) for l in logs), 2)
+
+        return {
+            "name": profile.name,
+            "student_code": profile.student_code,
+            "image_url": img_url,
+            "stats": {
+                "total_scans": len(logs),
+                "total_checkins": total_checkins,
+                "on_time_count": on_time_count,
+                "late_count": late_count,
+                "total_work_hours": total_hours,
+            },
+            "recent_logs": [
+                {
+                    "time": l.time_logged,
+                    "status": l.status,
+                    "check_type": l.check_type or "Check-in",
+                    "work_hours": round(float(l.work_hours or 0.0), 2),
+                }
+                for l in logs[:20]
+            ],
+        }
 
 
 def delete_user_by_code(student_code: str) -> Tuple[bool, str]:

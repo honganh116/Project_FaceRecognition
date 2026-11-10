@@ -3,10 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hệ thống Nhận diện Khuôn mặt AI</title>
+    <meta name="theme-color" content="#0a0b0d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FaceID Admin" />
+    <link rel="manifest" href="/admin/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/admin/icon.svg" />
+    <title>FaceID Admin — Ứng dụng Quản trị Nhân sự & AI</title>
   </head>
-  <body>
+  <body class="bg-[#0a0b0d] text-[#f8fafc]">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/admin/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

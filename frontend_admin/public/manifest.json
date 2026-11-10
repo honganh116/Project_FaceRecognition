@@ -1,0 +1,19 @@
+{
+  "name": "FaceID Admin — Quản trị Nhân sự & AI",
+  "short_name": "FaceID Admin",
+  "description": "Ứng dụng Quản trị Hệ thống Nhận diện Khuôn mặt AI Enterprise",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#0a0b0d",
+  "theme_color": "#34d399",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/admin/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

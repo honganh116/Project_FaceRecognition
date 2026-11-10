@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
+import csv
 from datetime import datetime, timedelta, timezone
+import io
 import logging
 import os
 import re
@@ -24,6 +26,7 @@ from database import (
     find_match_in_db,
     get_all_logs,
     get_all_users,
+    get_employee_summary,
     get_image_from_minio,
     get_shift_time,
     init_db,
@@ -103,7 +106,7 @@ async def decode_and_validate_image(file: UploadFile) -> Tuple[np.ndarray, bytes
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Quản lý vòng đời ứng dụng theo chuẩn FastAPI hiện đại (thay thế @app.on_event deprecated):
+    Quản lý vòng đời ứng dụng theo chuẩn FastAPI hiện đại:
     1. Khởi tạo & kiểm tra kết nối 3 tầng Database (có retry).
     2. Làm nóng (Warm-up) mô hình ArcFace 512D + SSD Detector vào RAM.
     """
@@ -128,7 +131,7 @@ async def lifespan(app: FastAPI):
 # 🌟 2. KHỞI TẠO APP
 app = FastAPI(
     title="Hệ thống Nhận diện Khuôn mặt AI Enterprise",
-    version="2.1",
+    version="3.0",
     lifespan=lifespan,
 )
 
@@ -156,7 +159,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 @app.get("/")
 def read_root():
-    return {"message": "Server FastAPI AI Enterprise v2.1 đang hoạt động trơn tru!"}
+    return {"message": "Server FastAPI AI Enterprise v3.0 đang hoạt động trơn tru!"}
 
 
 @app.get("/health")
@@ -172,7 +175,7 @@ def health_check():
     all_ok = all(v == "ok" for v in storage_status.values()) and redis_status == "ok"
     return {
         "status": "ok" if all_ok else "degraded",
-        "service": "Face Recognition Core v2.1",
+        "service": "Face Recognition Core v3.0",
         "components": {
             **storage_status,
             "redis": redis_status,
@@ -182,7 +185,8 @@ def health_check():
             "CLAHE-Enhancement",
             "Hybrid-AntiSpoofing",
             "Multi-Embedding-RQ",
-            "Attendance-Cooldown-Deduplication",
+            "CheckIn-CheckOut-WorkHours",
+            "PWA-SelfService-Portal",
         ],
     }
 
@@ -199,6 +203,63 @@ def serve_minio_image(image_name: str):
         )
     except Exception:
         raise HTTPException(status_code=404, detail="Không tìm thấy ảnh trong kho lưu trữ MinIO")
+
+
+@app.get("/api/lookup/{student_code}")
+def lookup_employee_portal(student_code: str):
+    """API Cổng tra cứu cá nhân (Employee Self-Service Portal) trên App Kiosk/Mobile."""
+    summary = get_employee_summary(student_code)
+    if not summary:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Không tìm thấy hồ sơ nhân sự với mã '{student_code}'!",
+        )
+    return summary
+
+
+@app.get("/api/logs/export")
+def export_attendance_csv(admin: str = Depends(get_current_admin)):
+    """Xuất toàn bộ bảng công ra file CSV chuẩn UTF-8 BOM (mở trực tiếp bằng Microsoft Excel)."""
+    logs = get_all_logs(limit=2000)
+    output = io.StringIO()
+    # Ghi BOM UTF-8 để Microsoft Excel hiển thị chuẩn tiếng Việt có dấu
+    output.write("\ufeff")
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "STT",
+            "Họ và Tên",
+            "Mã Nhân Sự / SV",
+            "Ngày",
+            "Giờ Quét",
+            "Phân Loại",
+            "Trạng Thái",
+            "Số Giờ Làm (h)",
+        ]
+    )
+
+    for idx, log in enumerate(logs, start=1):
+        time_str = log.get("time", "")
+        parts = time_str.split(" ") if " " in time_str else [time_str, ""]
+        writer.writerow(
+            [
+                idx,
+                log.get("name", ""),
+                log.get("student_code", ""),
+                parts[0],
+                parts[1] if len(parts) > 1 else "",
+                log.get("check_type", "Check-in"),
+                log.get("status", ""),
+                log.get("work_hours", 0.0),
+            ]
+        )
+
+    filename = f"Bang_Cham_Cong_FaceID_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    return Response(
+        content=output.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/api/extract")
@@ -228,7 +289,11 @@ async def extract_face(file: UploadFile = File(...)):
         }
 
     except ValueError as ve:
-        return {"error": str(ve) if "kích thước" in str(ve).lower() else "Không tìm thấy khuôn mặt nào trong ảnh. Vui lòng chọn ảnh rõ mặt hơn!"}
+        return {
+            "error": str(ve)
+            if "kích thước" in str(ve).lower()
+            else "Không tìm thấy khuôn mặt nào trong ảnh. Vui lòng chọn ảnh rõ mặt hơn!"
+        }
     except Exception as e:
         logger.error(f"Lỗi tại /api/extract: {e}")
         return {"error": f"Lỗi hệ thống: {str(e)}"}
@@ -260,7 +325,9 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
         }
 
     except ValueError:
-        return {"error": "Không tìm thấy khuôn mặt trong 1 hoặc cả 2 bức ảnh. Vui lòng thử ảnh rõ mặt hơn!"}
+        return {
+            "error": "Không tìm thấy khuôn mặt trong 1 hoặc cả 2 bức ảnh. Vui lòng thử ảnh rõ mặt hơn!"
+        }
     except Exception as e:
         logger.error(f"Lỗi tại /api/verify: {e}")
         return {"error": f"Lỗi hệ thống: {str(e)}"}
@@ -294,7 +361,9 @@ async def register_face(
         )
 
         if len(results) > 1:
-            return {"error": "Phát hiện nhiều khuôn mặt trong ảnh đăng ký! Vui lòng chọn ảnh chỉ có 1 người."}
+            return {
+                "error": "Phát hiện nhiều khuôn mặt trong ảnh đăng ký! Vui lòng chọn ảnh chỉ có 1 người."
+            }
 
         embedding_vector = results[0]["embedding"]
 
@@ -302,12 +371,15 @@ async def register_face(
         _, encoded_buf = cv2.imencode(".jpg", enhanced_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         clean_image_bytes = encoded_buf.tobytes()
 
-        success, msg, image_name = register_user(name, student_code, embedding_vector, clean_image_bytes)
+        success, msg, image_name = register_user(
+            name, student_code, embedding_vector, clean_image_bytes
+        )
 
         if success:
-            # Đẩy tác vụ tăng cường dữ liệu AI (Multi-Embedding Augmentation) cho Worker chạy ngầm
             try:
-                task_queue.enqueue(process_face_recognition, image_name, student_code.strip(), name.strip())
+                task_queue.enqueue(
+                    process_face_recognition, image_name, student_code.strip(), name.strip()
+                )
             except Exception as q_err:
                 logger.warning(f"⚠️ Không thể đẩy tác vụ vào Redis Queue: {q_err}")
 
@@ -430,7 +502,6 @@ def view_all_users(admin: str = Depends(get_current_admin)):
     }
 
 
-# --- API LƯU CẤU HÌNH GIỜ VÀO CA (CÓ VALIDATION ĐỊNH DẠNG HH:MM) ---
 class ShiftTimeUpdate(BaseModel):
     shift_time: str
 

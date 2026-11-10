@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   UserPlus,
   Save,
@@ -10,9 +10,13 @@ import {
   Calendar,
   AlertCircle,
   Sparkles,
-  ShieldCheck,
   Cpu,
   Upload,
+  FileSpreadsheet,
+  Search,
+  Camera,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -22,12 +26,21 @@ export default function AdminDashboard() {
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
 
+  // Bộ lọc & Tìm kiếm nhanh
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('all'); // 'all' | 'Check-in' | 'Check-out' | 'late'
+
   const [isAdding, setIsAdding] = useState(false);
   const [addingStatus, setAddingStatus] = useState('idle');
   const [formData, setFormData] = useState({ name: '', student_code: '' });
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [registerFeedback, setRegisterFeedback] = useState(null);
+
+  // Chế độ chụp ảnh trực tiếp bằng Webcam khi đăng ký nhân sự
+  const [useWebcamRegister, setUseWebcamRegister] = useState(false);
+  const registerVideoRef = useRef(null);
+  const registerStreamRef = useRef(null);
 
   const [shiftTime, setShiftTime] = useState('08:00');
 
@@ -36,6 +49,55 @@ export default function AdminDashboard() {
   const [testPreview, setTestPreview] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState(null);
+
+  const stopRegisterWebcam = () => {
+    if (registerStreamRef.current) {
+      registerStreamRef.current.getTracks().forEach((t) => t.stop());
+      registerStreamRef.current = null;
+    }
+    setUseWebcamRegister(false);
+  };
+
+  const startRegisterWebcam = async () => {
+    setUseWebcamRegister(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      });
+      registerStreamRef.current = stream;
+      if (registerVideoRef.current) {
+        registerVideoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      alert('Không thể truy cập Camera trên thiết bị này!');
+      setUseWebcamRegister(false);
+    }
+  };
+
+  const captureFromRegisterWebcam = () => {
+    if (!registerVideoRef.current || registerVideoRef.current.videoWidth === 0) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = registerVideoRef.current.videoWidth;
+    canvas.height = registerVideoRef.current.videoHeight;
+    canvas.getContext('2d').drawImage(registerVideoRef.current, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const capturedFile = new File([blob], `webcam_${Date.now()}.jpg`, {
+          type: 'image/jpeg',
+        });
+        setPhoto(capturedFile);
+        setPhotoPreview(URL.createObjectURL(capturedFile));
+        stopRegisterWebcam();
+      },
+      'image/jpeg',
+      0.95
+    );
+  };
+
+  useEffect(() => {
+    return () => stopRegisterWebcam();
+  }, []);
 
   const fetchShiftTime = async () => {
     try {
@@ -92,9 +154,29 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchShiftTime();
-    if (activeTab === 'logs') fetchLogs();
-    if (activeTab === 'users') fetchUsers();
+    fetchLogs();
+    fetchUsers();
   }, [activeTab]);
+
+  const handleExportCsv = async () => {
+    try {
+      const res = await fetch('/api/logs/export', {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('token')}` },
+      });
+      if (!res.ok) return alert('Không thể xuất báo cáo!');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Bang_Cham_Cong_FaceID_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Lỗi kết nối khi xuất file Excel/CSV!');
+    }
+  };
 
   const handlePhotoSelect = (e) => {
     const file = e.target.files?.[0];
@@ -106,7 +188,7 @@ export default function AdminDashboard() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!photo) return alert('Vui lòng chọn ảnh!');
+    if (!photo) return alert('Vui lòng chọn ảnh hoặc chụp từ Camera!');
 
     setAddingStatus('saving');
     setRegisterFeedback(null);
@@ -139,7 +221,7 @@ export default function AdminDashboard() {
           setPhoto(null);
           setPhotoPreview(null);
           setRegisterFeedback(null);
-        }, 3000);
+        }, 2800);
       }
     } catch (error) {
       alert('Lỗi kết nối Server!');
@@ -196,7 +278,30 @@ export default function AdminDashboard() {
     }
   };
 
-  const groupedLogs = logs.reduce((acc, log) => {
+  // Lọc log theo từ khóa & loại chấm công
+  const filteredLogs = logs.filter((log) => {
+    const q = searchQuery.trim().toLowerCase();
+    const matchText =
+      !q ||
+      log.name?.toLowerCase().includes(q) ||
+      log.student_code?.toLowerCase().includes(q);
+    if (!matchText) return false;
+    if (filterType === 'Check-in') return (log.check_type || 'Check-in') === 'Check-in';
+    if (filterType === 'Check-out') return log.check_type === 'Check-out';
+    if (filterType === 'late') return log.status === 'Đi muộn';
+    return true;
+  });
+
+  const filteredUsers = users.filter((u) => {
+    const q = searchQuery.trim().toLowerCase();
+    return (
+      !q ||
+      u.name?.toLowerCase().includes(q) ||
+      u.student_code?.toLowerCase().includes(q)
+    );
+  });
+
+  const groupedLogs = filteredLogs.reduce((acc, log) => {
     const date = log.time.includes(' ') ? log.time.split(' ')[0] : 'Không rõ ngày';
     if (!acc[date]) {
       acc[date] = [];
@@ -225,24 +330,35 @@ export default function AdminDashboard() {
   return (
     <div className="flex-1 bg-[#0a0b0d] text-slate-300 overflow-y-auto font-sans p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8 border-b border-[#2d2d2d] pb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-[#2d2d2d] pb-6 gap-4">
           <div>
             <h1 className="text-sm font-mono tracking-[2px] font-bold text-[#f8fafc] uppercase flex items-center gap-2">
-              Quản trị Hệ thống FaceID AI v2.0
+              Ứng dụng Quản trị FaceID AI v3.0
               <span className="bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/30 text-[10px] px-2 py-0.5 rounded">
-                CLAHE + Anti-Spoof + Multi-Vector
+                Check-in/Out + CLAHE + Anti-Spoof
               </span>
             </h1>
             <p className="text-[#64748b] font-mono text-[10px] uppercase tracking-wider mt-2">
-              Danh sách điểm danh, Quản lý Polyglot Database & Kiểm thử Thị giác máy tính.
+              Quản lý chấm công thông minh, Xuất báo cáo Excel/CSV &amp; Kiểm thử Thị giác máy tính.
             </p>
           </div>
-          <button
-            onClick={() => setIsAdding(!isAdding)}
-            className="bg-[#34d399] text-black px-4 py-2 flex items-center gap-2 rounded-sm font-mono text-xs font-bold uppercase hover:bg-[#2dbb86] cursor-pointer"
-          >
-            <UserPlus className="w-5 h-5" /> Thêm nhân sự
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportCsv}
+              className="bg-[#15171c] border border-[#38bdf8]/40 text-[#38bdf8] px-4 py-2 flex items-center gap-2 rounded-sm font-mono text-xs font-bold uppercase hover:bg-[#38bdf8]/10 transition-colors cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> Xuất Excel / CSV
+            </button>
+            <button
+              onClick={() => {
+                if (isAdding) stopRegisterWebcam();
+                setIsAdding(!isAdding);
+              }}
+              className="bg-[#34d399] text-black px-4 py-2 flex items-center gap-2 rounded-sm font-mono text-xs font-bold uppercase hover:bg-[#2dbb86] cursor-pointer"
+            >
+              <UserPlus className="w-5 h-5" /> Thêm nhân sự
+            </button>
+          </div>
         </div>
 
         {isAdding && (
@@ -252,8 +368,8 @@ export default function AdminDashboard() {
             className="bg-[#15171c] border border-[#2d2d2d] p-6 mb-8 rounded-md"
           >
             <h2 className="text-[10px] text-[#34d399] font-mono uppercase mb-6 border-b border-[#333] pb-2 flex items-center justify-between">
-              <span>Đăng ký khuôn mặt mới (Tự động cân bằng sáng CLAHE & Sinh đa Vector ngầm)</span>
-              <span>ArcFace 512D</span>
+              <span>Đăng ký khuôn mặt mới (Hỗ trợ chụp trực tiếp từ Camera hoặc Tải ảnh)</span>
+              <span>ArcFace 512D + Multi-Embedding</span>
             </h2>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
@@ -284,7 +400,7 @@ export default function AdminDashboard() {
                 {registerFeedback?.quality && (
                   <div className="bg-[#0a0b0d] border border-[#34d399]/40 p-3 rounded text-xs font-mono space-y-1">
                     <p className="text-[#34d399] font-bold">
-                      ✓ Đã trích xuất Vector gốc & đẩy 4 biến thể vào RQ Worker!
+                      ✓ Đã trích xuất Vector gốc &amp; đẩy 4 biến thể vào RQ Worker!
                     </p>
                     <p className="text-[#94a3b8] text-[11px]">
                       Độ nét (Laplacian): {registerFeedback.quality.blur_score} | Độ sáng:{' '}
@@ -295,14 +411,43 @@ export default function AdminDashboard() {
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-mono uppercase text-[#64748b] mb-2">
-                    Tải lên ảnh nhận diện rõ mặt
+                <div className="flex items-center justify-between">
+                  <label className="block text-[10px] font-mono uppercase text-[#64748b]">
+                    Nguồn ảnh khuôn mặt
                   </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      useWebcamRegister ? stopRegisterWebcam() : startRegisterWebcam()
+                    }
+                    className="text-[10px] font-mono uppercase text-[#38bdf8] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    {useWebcamRegister ? 'Chuyển sang Tải file ảnh' : 'Mở Camera chụp trực tiếp'}
+                  </button>
+                </div>
+
+                {useWebcamRegister ? (
+                  <div className="bg-[#0a0b0d] border border-[#38bdf8]/50 p-3 rounded text-center space-y-3">
+                    <video
+                      ref={registerVideoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-44 object-cover rounded transform -scale-x-100 bg-black"
+                    />
+                    <button
+                      type="button"
+                      onClick={captureFromRegisterWebcam}
+                      className="bg-[#38bdf8] text-black px-4 py-2 rounded font-mono text-xs font-bold uppercase hover:bg-[#0284c7] cursor-pointer"
+                    >
+                      Chụp Khung Hình Này
+                    </button>
+                  </div>
+                ) : (
                   <div className="border border-dashed border-[#333] p-4 text-center bg-[#0a0b0d] relative cursor-pointer hover:border-[#34d399] flex items-center justify-center min-h-[110px]">
                     <input
                       type="file"
-                      required
+                      required={!photo}
                       accept="image/*"
                       onChange={handlePhotoSelect}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -317,17 +462,17 @@ export default function AdminDashboard() {
                         <div className="text-left">
                           <div className="text-[#34d399] font-mono text-xs">{photo?.name}</div>
                           <div className="text-[#64748b] font-mono text-[10px] mt-1">
-                            Sẵn sàng qua bộ lọc CLAHE & ArcFace
+                            Sẵn sàng qua bộ lọc CLAHE &amp; ArcFace
                           </div>
                         </div>
                       </div>
                     ) : (
                       <span className="text-[#64748b] font-mono text-[10px]">
-                        Click hoặc Kéo thả ảnh (File JPEG/PNG)
+                        Click chọn ảnh hoặc bấm &ldquo;Mở Camera chụp trực tiếp&rdquo; ở góc trên
                       </span>
                     )}
                   </div>
-                </div>
+                )}
 
                 <button
                   type="submit"
@@ -341,7 +486,7 @@ export default function AdminDashboard() {
                   )}
                   {addingStatus === 'saving' && (
                     <>
-                      <Clock className="w-4 h-4 animate-spin" /> Đang cân bằng sáng & trích xuất AI...
+                      <Clock className="w-4 h-4 animate-spin" /> Đang cân bằng sáng &amp; trích xuất AI...
                     </>
                   )}
                   {addingStatus === 'done' && (
@@ -355,37 +500,68 @@ export default function AdminDashboard() {
           </motion.div>
         )}
 
-        <div className="flex gap-4 mb-6 border-b border-[#2d2d2d]">
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
-              activeTab === 'logs'
-                ? 'text-[#34d399] border-b-2 border-[#34d399]'
-                : 'text-[#64748b] hover:text-white'
-            }`}
-          >
-            <List className="w-4 h-4" /> Lịch sử Điểm danh
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
-              activeTab === 'users'
-                ? 'text-[#34d399] border-b-2 border-[#34d399]'
-                : 'text-[#64748b] hover:text-white'
-            }`}
-          >
-            <Database className="w-4 h-4" /> Dữ liệu Database ({users.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('ai_lab')}
-            className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
-              activeTab === 'ai_lab'
-                ? 'text-[#34d399] border-b-2 border-[#34d399]'
-                : 'text-[#64748b] hover:text-white'
-            }`}
-          >
-            <Cpu className="w-4 h-4" /> Kiểm thử AI & Anti-Spoofing
-          </button>
+        {/* Thanh Tabs + Bộ lọc tìm kiếm */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-[#2d2d2d]">
+          <div className="flex gap-4">
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+                activeTab === 'logs'
+                  ? 'text-[#34d399] border-b-2 border-[#34d399]'
+                  : 'text-[#64748b] hover:text-white'
+              }`}
+            >
+              <List className="w-4 h-4" /> Lịch sử Điểm danh ({logs.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+                activeTab === 'users'
+                  ? 'text-[#34d399] border-b-2 border-[#34d399]'
+                  : 'text-[#64748b] hover:text-white'
+              }`}
+            >
+              <Database className="w-4 h-4" /> Hồ sơ Nhân sự ({users.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('ai_lab')}
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+                activeTab === 'ai_lab'
+                  ? 'text-[#34d399] border-b-2 border-[#34d399]'
+                  : 'text-[#64748b] hover:text-white'
+              }`}
+            >
+              <Cpu className="w-4 h-4" /> Phòng Lab AI
+            </button>
+          </div>
+
+          {activeTab !== 'ai_lab' && (
+            <div className="flex items-center gap-2 pb-2 md:pb-0">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Tìm tên hoặc mã SV..."
+                  className="bg-[#15171c] border border-[#2d2d2d] focus:border-[#34d399] text-white pl-8 pr-3 py-1.5 rounded text-xs font-mono outline-none w-48"
+                />
+              </div>
+
+              {activeTab === 'logs' && (
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="bg-[#15171c] border border-[#2d2d2d] text-slate-300 px-3 py-1.5 rounded text-xs font-mono outline-none focus:border-[#34d399]"
+                >
+                  <option value="all">Tất cả lượt quét</option>
+                  <option value="Check-in">Chỉ Check-in (Vào ca)</option>
+                  <option value="Check-out">Chỉ Check-out (Tan ca)</option>
+                  <option value="late">Chỉ Đi muộn</option>
+                </select>
+              )}
+            </div>
+          )}
         </div>
 
         {activeTab === 'logs' && (
@@ -394,7 +570,7 @@ export default function AdminDashboard() {
               <div className="flex items-center gap-3">
                 <Clock className="text-[#34d399] w-5 h-5" />
                 <span className="text-[12px] font-mono font-bold text-gray-300 uppercase tracking-wider">
-                  Quy định giờ vào ca:
+                  Quy định giờ vào ca chuẩn:
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -452,7 +628,7 @@ export default function AdminDashboard() {
             <div className="space-y-6">
               {Object.keys(groupedLogs).length === 0 ? (
                 <div className="bg-[#15171c] border border-[#2d2d2d] p-8 text-center text-[#64748b] font-mono text-[10px] uppercase rounded-md">
-                  Chưa có dữ liệu điểm danh.
+                  Không có dữ liệu điểm danh khớp bộ lọc.
                 </div>
               ) : (
                 Object.keys(groupedLogs).map((date) => (
@@ -477,8 +653,10 @@ export default function AdminDashboard() {
                         <tr>
                           <th className="px-6 py-3 font-normal">Họ và Tên</th>
                           <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
-                          <th className="px-6 py-3 font-normal">Giờ điểm danh</th>
+                          <th className="px-6 py-3 font-normal">Giờ quét</th>
+                          <th className="px-6 py-3 font-normal">Phân loại</th>
                           <th className="px-6 py-3 font-normal">Trạng thái</th>
+                          <th className="px-6 py-3 font-normal text-right">Số giờ làm</th>
                         </tr>
                       </thead>
                       <tbody className="font-sans text-xs">
@@ -494,16 +672,32 @@ export default function AdminDashboard() {
                             <td className="px-6 py-4 text-[#64748b] font-mono font-bold text-[11px]">
                               {log.time.includes(' ') ? log.time.split(' ')[1] : log.time}
                             </td>
+                            <td className="px-6 py-4 font-mono">
+                              {log.check_type === 'Check-out' ? (
+                                <span className="inline-flex items-center gap-1 text-[#38bdf8] bg-[#38bdf8]/10 border border-[#38bdf8]/30 px-2.5 py-1 rounded-sm text-[10px] font-bold uppercase">
+                                  <LogOut className="w-3 h-3" /> Check-out
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[#34d399] bg-[#34d399]/10 border border-[#34d399]/30 px-2.5 py-1 rounded-sm text-[10px] font-bold uppercase">
+                                  <LogIn className="w-3 h-3" /> Check-in
+                                </span>
+                              )}
+                            </td>
                             <td className="px-6 py-4">
                               <span
                                 className={`px-3 py-1.5 text-[10px] font-bold border rounded-sm ${
                                   log.status === 'Đi muộn'
                                     ? 'text-[#f43f5e] bg-[#f43f5e]/10 border-[#f43f5e]/30'
+                                    : log.status === 'Tan ca'
+                                    ? 'text-[#38bdf8] bg-[#38bdf8]/10 border-[#38bdf8]/30'
                                     : 'text-[#34d399] bg-[#34d399]/10 border-[#34d399]/30'
                                 } uppercase tracking-wider`}
                               >
                                 {log.status}
                               </span>
+                            </td>
+                            <td className="px-6 py-4 text-right font-mono font-bold text-slate-300">
+                              {log.work_hours > 0 ? `${log.work_hours}h` : '-'}
                             </td>
                           </tr>
                         ))}
@@ -530,7 +724,7 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="font-sans text-xs">
-                {users.map((u, i) => (
+                {filteredUsers.map((u, i) => (
                   <tr key={i} className="border-b border-[#2d2d2d] hover:bg-[#1c1f26] group">
                     <td className="px-6 py-3">
                       <div className="w-11 h-11 rounded-md overflow-hidden border border-[#333] bg-[#0a0b0d] flex items-center justify-center">
@@ -564,13 +758,13 @@ export default function AdminDashboard() {
                     </td>
                   </tr>
                 ))}
-                {users.length === 0 && (
+                {filteredUsers.length === 0 && (
                   <tr>
                     <td
                       colSpan="5"
                       className="text-center py-8 text-[#64748b] font-mono text-[10px] uppercase"
                     >
-                      Chưa có dữ liệu sinh viên nào trong Database.
+                      Không tìm thấy hồ sơ sinh viên nào.
                     </td>
                   </tr>
                 )}
@@ -685,7 +879,7 @@ export default function AdminDashboard() {
 
                   <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded space-y-2">
                     <p className="text-[#34d399] font-bold uppercase text-[11px]">
-                      Tiền xử lý & Chất lượng ảnh
+                      Tiền xử lý &amp; Chất lượng ảnh
                     </p>
                     <div className="grid grid-cols-3 gap-2 text-[11px]">
                       <div className="bg-[#15171c] p-2 rounded">

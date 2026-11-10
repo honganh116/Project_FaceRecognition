@@ -11,6 +11,10 @@ import {
   EyeOff,
   Camera,
   Zap,
+  Volume2,
+  VolumeX,
+  LogOut,
+  LogIn,
 } from 'lucide-react';
 
 export default function CameraView() {
@@ -23,10 +27,68 @@ export default function CameraView() {
 
   const [status, setStatus] = useState('idle');
   const [user, setUser] = useState(null);
+  const [attendanceInfo, setAttendanceInfo] = useState(null);
   const [telemetry, setTelemetry] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [isAutoScan, setIsAutoScan] = useState(true);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [edgeHint, setEdgeHint] = useState('Đang giám sát vùng nhận diện...');
+
+  // Tổng hợp hiệu ứng âm thanh điện tử (Web Audio API) không cần file MP3 ngoài
+  const playChime = useCallback(
+    (type) => {
+      if (!isVoiceEnabled) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        if (type === 'success') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, now);
+          osc.frequency.setValueAtTime(1174.66, now + 0.1);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+          osc.start(now);
+          osc.stop(now + 0.35);
+        } else if (type === 'spoof' || type === 'unknown') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(240, now);
+          osc.frequency.setValueAtTime(180, now + 0.15);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+          osc.start(now);
+          osc.stop(now + 0.4);
+        }
+      } catch (e) {
+        // Bỏ qua nếu trình duyệt chặn autoplay âm thanh
+      }
+    },
+    [isVoiceEnabled]
+  );
+
+  // Trợ lý Giọng nói AI Tiếng Việt (Web Speech Synthesis API)
+  const speakVietnamese = useCallback(
+    (text) => {
+      if (!isVoiceEnabled || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'vi-VN';
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        // Bỏ qua nếu thiết bị không hỗ trợ TTS
+      }
+    },
+    [isVoiceEnabled]
+  );
 
   useEffect(() => {
     let currentStream = null;
@@ -80,35 +142,28 @@ export default function CameraView() {
     const w = box.w;
     const h = box.h;
 
-    // Khung mờ bán trong suốt
     ctx.strokeStyle = `${color}55`;
     ctx.lineWidth = 2;
     ctx.strokeRect(mirroredX, y, w, h);
 
-    // Vẽ 4 góc HUD sắc nét
     const cornerLen = Math.min(28, w * 0.22, h * 0.22);
     ctx.strokeStyle = color;
     ctx.lineWidth = 5;
     ctx.beginPath();
-    // Góc trên trái
     ctx.moveTo(mirroredX, y + cornerLen);
     ctx.lineTo(mirroredX, y);
     ctx.lineTo(mirroredX + cornerLen, y);
-    // Góc trên phải
     ctx.moveTo(mirroredX + w - cornerLen, y);
     ctx.lineTo(mirroredX + w, y);
     ctx.lineTo(mirroredX + w, y + cornerLen);
-    // Góc dưới trái
     ctx.moveTo(mirroredX, y + h - cornerLen);
     ctx.lineTo(mirroredX, y + h);
     ctx.lineTo(mirroredX + cornerLen, y + h);
-    // Góc dưới phải
     ctx.moveTo(mirroredX + w - cornerLen, y + h);
     ctx.lineTo(mirroredX + w, y + h);
     ctx.lineTo(mirroredX + w, y + h - cornerLen);
     ctx.stroke();
 
-    // Nhãn chính phía trên khung
     ctx.font = 'bold 16px monospace';
     const textWidth = ctx.measureText(labelText).width;
     ctx.fillStyle = 'rgba(10, 11, 13, 0.85)';
@@ -116,7 +171,6 @@ export default function CameraView() {
     ctx.fillStyle = color;
     ctx.fillText(labelText, mirroredX + 10, Math.max(20, y - 14));
 
-    // Nhãn phụ phía dưới khung (Liveness & CLAHE)
     if (subLabelText) {
       ctx.font = '12px monospace';
       const subWidth = ctx.measureText(subLabelText).width;
@@ -163,7 +217,9 @@ export default function CameraView() {
               cooldownUntilRef.current = Date.now() + 1800;
               if (!isAutoTriggered) {
                 setErrorMessage(
-                  data.message || data.error || 'Không tìm thấy khuôn mặt, vui lòng nhìn thẳng vào camera!'
+                  data.message ||
+                    data.error ||
+                    'Không tìm thấy khuôn mặt, vui lòng nhìn thẳng vào camera!'
                 );
                 setStatus('quality_error');
                 setTimeout(() => {
@@ -189,6 +245,8 @@ export default function CameraView() {
             }
 
             if (data.status === 'warning') {
+              playChime('unknown');
+              speakVietnamese('Vui lòng bước vào khung hình từng người một.');
               setStatus('warning');
               cooldownUntilRef.current = Date.now() + 3200;
               setTimeout(() => {
@@ -200,6 +258,8 @@ export default function CameraView() {
             }
 
             if (data.status === 'spoof') {
+              playChime('spoof');
+              speakVietnamese('Cảnh báo an ninh! Phát hiện dấu hiệu giả mạo khuôn mặt.');
               const livePct = data.liveness
                 ? `${Math.round(data.liveness.liveness_score * 100)}%`
                 : 'LOW';
@@ -241,9 +301,24 @@ export default function CameraView() {
             });
 
             if (isKnown) {
-              setStatus('success');
+              playChime('success');
+              const att = data.attendance || {};
+              setAttendanceInfo(att);
               setUser(data.user);
+              setStatus('success');
+
+              if (att.check_type === 'Check-out') {
+                speakVietnamese(
+                  `Chào tạm biệt ${data.user.name}. Bạn đã chấm công tan ca, tổng số giờ làm là ${att.work_hours} giờ.`
+                );
+              } else {
+                speakVietnamese(
+                  `Xin chào ${data.user.name}. Chấm công vào ca ${att.status || 'thành công'}.`
+                );
+              }
             } else {
+              playChime('unknown');
+              speakVietnamese('Không nhận diện được danh tính. Vui lòng liên hệ quản trị viên.');
               setStatus('unknown');
             }
 
@@ -252,7 +327,7 @@ export default function CameraView() {
               setStatus('idle');
               isProcessingRef.current = false;
               clearOverlay();
-            }, 3200);
+            }, 3400);
           } catch (error) {
             console.error('Lỗi API:', error);
             setStatus('idle');
@@ -264,10 +339,9 @@ export default function CameraView() {
         0.92
       );
     },
-    [clearOverlay, drawTrackingBox]
+    [clearOverlay, drawTrackingBox, playChime, speakVietnamese]
   );
 
-  // Edge Computing: Tự động phát hiện người đứng ổn định ở vùng trung tâm để quét không chạm
   useEffect(() => {
     if (!isAutoScan) {
       setEdgeHint('Chế độ thủ công: Bấm nút để chấm công');
@@ -291,7 +365,6 @@ export default function CameraView() {
 
       const vw = videoRef.current.videoWidth;
       const vh = videoRef.current.videoHeight;
-      // Chỉ lấy vùng trung tâm nơi khuôn mặt xuất hiện
       sampleCtx.drawImage(
         videoRef.current,
         vw * 0.25,
@@ -323,7 +396,6 @@ export default function CameraView() {
         const avgMotion = diffSum / totalPixels;
         const avgBrightness = luminanceSum / totalPixels;
 
-        // Nếu ánh sáng đủ và có chuyển động nhỏ (người đang đứng yên trước ống kính, không phải ảnh tĩnh tuyệt đối = 0)
         if (avgBrightness > 28 && avgMotion >= 0.8 && avgMotion <= 8.5) {
           stableCountRef.current += 1;
           setEdgeHint(
@@ -360,7 +432,6 @@ export default function CameraView() {
         className="absolute w-full h-full object-cover pointer-events-none z-10"
       />
 
-      {/* Khung định vị trung tâm trên Kiosk */}
       <div className="absolute w-72 h-80 border border-[#34d399]/20 rounded-3xl pointer-events-none z-10 flex items-center justify-center">
         <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#34d399]/25 to-transparent" />
       </div>
@@ -368,7 +439,7 @@ export default function CameraView() {
       {/* Header & Trạng thái AI Pipeline */}
       <div className="absolute top-8 left-8 z-20 pointer-events-none space-y-2">
         <h2 className="text-xl font-mono tracking-[4px] font-bold text-white uppercase flex items-center gap-2">
-          <Focus className="w-6 h-6 text-[#34d399]" /> Terminal Chấm Công AI v2.0
+          <Focus className="w-6 h-6 text-[#34d399]" /> Terminal Chấm Công AI v3.0
         </h2>
         <div className="flex items-center gap-3">
           <p className="text-[#34d399] font-mono text-xs tracking-widest uppercase animate-pulse">
@@ -383,13 +454,26 @@ export default function CameraView() {
             <Sparkles className="w-3 h-3" /> CLAHE Auto-HDR
           </span>
           <span className="bg-[#15171c]/80 border border-[#2d2d2d] text-[#38bdf8] font-mono text-[10px] px-2.5 py-1 rounded uppercase">
-            Anti-Spoofing Liveness
+            Check-in / Check-out + Voice AI
           </span>
         </div>
       </div>
 
-      {/* Nút chuyển đổi chế độ Auto-Scan (Edge) */}
-      <div className="absolute top-8 right-8 z-30 flex items-center gap-3">
+      {/* Cụm nút điều khiển Auto-Scan & Trợ lý Giọng nói AI */}
+      <div className="absolute top-8 right-8 z-30 flex items-center gap-2.5">
+        <button
+          onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+          className={`px-3.5 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-2 cursor-pointer ${
+            isVoiceEnabled
+              ? 'bg-[#38bdf8]/15 border-[#38bdf8] text-[#38bdf8]'
+              : 'bg-[#15171c]/90 border-[#333] text-[#64748b] hover:text-white'
+          }`}
+          title="Bật/Tắt giọng nói AI chào nhân viên"
+        >
+          {isVoiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          {isVoiceEnabled ? 'Giọng nói AI' : 'Tắt tiếng'}
+        </button>
+
         <button
           onClick={() => setIsAutoScan(!isAutoScan)}
           className={`px-4 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-2 cursor-pointer ${
@@ -424,8 +508,19 @@ export default function CameraView() {
             <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-12 py-8 flex flex-col items-center gap-4 border-2 border-[#34d399] rounded-2xl shadow-[0_20px_60px_rgba(52,211,153,0.3)]">
               <ShieldCheck className="w-16 h-16 text-[#34d399]" />
               <div className="text-center">
-                <h3 className="font-mono font-bold text-xl uppercase text-[#34d399] mb-2">
-                  Chấm công thành công
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  {attendanceInfo?.check_type === 'Check-out' ? (
+                    <span className="bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40 px-3 py-0.5 rounded-full font-mono text-xs font-bold uppercase inline-flex items-center gap-1.5">
+                      <LogOut className="w-3.5 h-3.5" /> Check-out Tan Ca ({attendanceInfo.work_hours}h)
+                    </span>
+                  ) : (
+                    <span className="bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 px-3 py-0.5 rounded-full font-mono text-xs font-bold uppercase inline-flex items-center gap-1.5">
+                      <LogIn className="w-3.5 h-3.5" /> Check-in Vào Ca • {attendanceInfo?.status || 'Đúng giờ'}
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-mono font-bold text-xl uppercase text-[#34d399] mb-1">
+                  {attendanceInfo?.is_duplicate ? 'Đã Ghi Nhận Trước Đó' : 'Chấm Công Thành Công'}
                 </h3>
                 <p className="text-white text-lg font-mono">
                   {user?.name}{' '}
