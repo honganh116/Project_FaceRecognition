@@ -93,6 +93,7 @@ class Attendance(Base):
     status = Column(String, default="Đúng giờ")
     check_type = Column(String, default="Check-in")
     work_hours = Column(Float, default=0.0)
+    mask_status = Column(String, default="Không rõ")
     created_at = Column(DateTime, default=datetime.now, index=True)
 
 
@@ -139,12 +140,19 @@ def init_db(max_retries: int = 5, retry_delay: float = 2.0) -> None:
                         "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS work_hours FLOAT DEFAULT 0.0;"
                     )
                 )
+                conn.execute(
+                    text(
+                        "ALTER TABLE attendance ADD COLUMN IF NOT EXISTS mask_status VARCHAR(50) DEFAULT 'Không rõ';"
+                    )
+                )
 
             with get_db_session() as db:
                 if not db.query(Settings).filter(Settings.key == "shift_time").first():
                     db.add(Settings(key="shift_time", value="08:00"))
                 if not db.query(Settings).filter(Settings.key == "shift_end_time").first():
                     db.add(Settings(key="shift_end_time", value="17:30"))
+                if not db.query(Settings).filter(Settings.key == "rtsp_url").first():
+                    db.add(Settings(key="rtsp_url", value=""))
 
             if not minio_client.bucket_exists(BUCKET_NAME):
                 minio_client.make_bucket(BUCKET_NAME)
@@ -208,6 +216,22 @@ def update_shift_time(new_time: str) -> None:
         else:
             db.add(Settings(key="shift_time", value=new_time))
     logger.info(f"Đã cập nhật giờ vào ca mới: {new_time}")
+
+
+def get_rtsp_url() -> str:
+    with get_db_session() as db:
+        setting = db.query(Settings).filter(Settings.key == "rtsp_url").first()
+        return setting.value if setting else ""
+
+
+def update_rtsp_url(new_url: str) -> None:
+    with get_db_session() as db:
+        setting = db.query(Settings).filter(Settings.key == "rtsp_url").first()
+        if setting:
+            setting.value = new_url.strip()
+        else:
+            db.add(Settings(key="rtsp_url", value=new_url.strip()))
+    logger.info(f"Đã cập nhật cấu hình RTSP Stream URL: '{new_url.strip()}'")
 
 
 def register_user(
@@ -315,13 +339,14 @@ def find_match_in_db(
     return False, None, 0.0
 
 
-def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
+def log_attendance(name: str, student_code: str, mask_status: str = "Không rõ") -> Dict[str, Any]:
     """
-    Nghiệp vụ Chấm công Thông minh (Check-in / Check-out & Tính giờ làm):
+    Nghiệp vụ Chấm công Thông minh (Check-in / Check-out & Tính giờ làm & PPE Khẩu trang):
     1. Chống spam liên tiếp trong vòng 60 giây (Cooldown).
     2. Nếu chưa có bản ghi nào trong ngày hôm nay -> Ghi nhận 'Check-in' (Đúng giờ / Đi muộn).
     3. Nếu đã có 'Check-in' trong ngày -> Tự động ghi nhận 'Check-out' (Tan ca) và tính tổng số giờ làm việc (work_hours).
-    4. Tự động dọn dẹp dữ liệu quá 45 ngày bằng truy vấn SQL trực tiếp.
+    4. Ghi nhận tình trạng trang bị khẩu trang / PPE.
+    5. Tự động dọn dẹp dữ liệu quá 45 ngày bằng truy vấn SQL trực tiếp.
     """
     now = datetime.now()
     current_time_str = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -348,6 +373,7 @@ def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
                 "status": recent_log.status,
                 "check_type": recent_log.check_type or "Check-in",
                 "work_hours": recent_log.work_hours or 0.0,
+                "mask_status": getattr(recent_log, "mask_status", mask_status) or mask_status,
             }
 
         # 2. Kiểm tra xem hôm nay nhân sự đã Check-in chưa
@@ -380,6 +406,7 @@ def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
                 status=status,
                 check_type=check_type,
                 work_hours=work_hours,
+                mask_status=mask_status,
                 created_at=now,
             )
         )
@@ -391,7 +418,7 @@ def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
         )
 
     logger.info(
-        f"Điểm danh [{check_type}]: {name} ({student_code}) - {status} ({work_hours}h) lúc {current_time_str}"
+        f"Điểm danh [{check_type}]: {name} ({student_code}) - {status} ({work_hours}h) | Khẩu trang: {mask_status} lúc {current_time_str}"
     )
     return {
         "is_duplicate": False,
@@ -399,6 +426,7 @@ def log_attendance(name: str, student_code: str) -> Dict[str, Any]:
         "status": status,
         "check_type": check_type,
         "work_hours": work_hours,
+        "mask_status": mask_status,
     }
 
 
@@ -413,6 +441,7 @@ def get_all_logs(limit: int = 200) -> List[Dict[str, Any]]:
                 "status": l.status,
                 "check_type": l.check_type or "Check-in",
                 "work_hours": round(float(l.work_hours or 0.0), 2),
+                "mask_status": getattr(l, "mask_status", "Không rõ") or "Không rõ",
             }
             for l in logs
         ]
@@ -464,6 +493,7 @@ def get_employee_summary(student_code: str) -> Optional[Dict[str, Any]]:
                     "status": l.status,
                     "check_type": l.check_type or "Check-in",
                     "work_hours": round(float(l.work_hours or 0.0), 2),
+                    "mask_status": getattr(l, "mask_status", "Không rõ") or "Không rõ",
                 }
                 for l in logs[:20]
             ],

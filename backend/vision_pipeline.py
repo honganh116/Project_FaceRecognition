@@ -244,3 +244,138 @@ def generate_augmented_variants(img: np.ndarray) -> List[Tuple[str, np.ndarray]]
     variants.append(("lighting_boost", gamma_variant))
 
     return variants
+
+
+def detect_mask_and_ppe(img: np.ndarray, facial_area: Dict[str, int]) -> Dict[str, Any]:
+    """
+    Phát hiện khẩu trang y tế / trang bị bảo hộ (Face Mask & PPE Detection):
+    1. Trích xuất vùng nửa dưới khuôn mặt (từ sống mũi tới cằm: mũi, miệng).
+    2. Phân tích phân bố sắc tố da (Skin Color Segmentation trong YCrCb và HSV).
+    3. Phân tích màu đặc trưng của khẩu trang (Xanh y tế / Cyan / Trắng N95 / Đen).
+    4. Phân tích hình thái vị trí mũi và miệng để phát hiện 'Đeo khẩu trang sai quy cách' (tụt dưới mũi).
+    """
+    h_img, w_img = img.shape[:2]
+    x = max(0, int(facial_area.get("x", 0)))
+    y = max(0, int(facial_area.get("y", 0)))
+    w = max(1, int(facial_area.get("w", w_img)))
+    h = max(1, int(facial_area.get("h", h_img)))
+
+    face_roi = img[y : min(h_img, y + h), x : min(w_img, x + w)]
+    if face_roi.size == 0 or face_roi.shape[0] < 30 or face_roi.shape[1] < 30:
+        return {
+            "is_masked": False,
+            "mask_status": "no_mask",
+            "confidence": 0.5,
+            "label": "Không xác định",
+            "ppe_compliant": False,
+        }
+
+    roi_h, roi_w = face_roi.shape[:2]
+    # Phân vùng nửa trên (trán, mắt) và nửa dưới (mũi, miệng, cằm)
+    upper_roi = face_roi[0 : int(roi_h * 0.45), :]
+    lower_roi = face_roi[int(roi_h * 0.45) : roi_h, :]
+    nose_roi = face_roi[int(roi_h * 0.35) : int(roi_h * 0.65), int(roi_w * 0.25) : int(roi_w * 0.75)]
+    mouth_roi = face_roi[int(roi_h * 0.65) : int(roi_h * 0.95), int(roi_w * 0.15) : int(roi_w * 0.85)]
+
+    # 1. Phân tích tỷ lệ màu da trong YCrCb
+    def get_skin_ratio(bgr_patch: np.ndarray) -> float:
+        if bgr_patch.size == 0:
+            return 0.0
+        ycrcb = cv2.cvtColor(bgr_patch, cv2.COLOR_BGR2YCrCb)
+        _, cr, cb = cv2.split(ycrcb)
+        skin_mask = (cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)
+        return float(np.mean(skin_mask))
+
+    upper_skin = get_skin_ratio(upper_roi)
+    lower_skin = get_skin_ratio(lower_roi)
+    mouth_skin = get_skin_ratio(mouth_roi)
+    nose_skin = get_skin_ratio(nose_roi)
+
+    # 2. Phân tích màu sắc đặc trưng của khẩu trang (Xanh y tế / Cyan / Trắng N95 / Đen)
+    lower_hsv = cv2.cvtColor(lower_roi, cv2.COLOR_BGR2HSV)
+    h_chan, s_chan, v_chan = cv2.split(lower_hsv)
+
+    # Khẩu trang xanh y tế / xanh dương: H trong [85, 135], S > 35, V > 50
+    blue_mask = (h_chan >= 85) & (h_chan <= 135) & (s_chan >= 35) & (v_chan >= 50)
+    blue_ratio = float(np.mean(blue_mask))
+
+    # Khẩu trang trắng y tế / N95: Độ bão hòa màu cực thấp S < 35, độ sáng V > 140
+    white_mask = (s_chan <= 35) & (v_chan >= 140)
+    white_ratio = float(np.mean(white_mask))
+
+    # Khẩu trang đen / xám đậm: Độ sáng V < 55
+    black_mask = (v_chan <= 55)
+    black_ratio = float(np.mean(black_mask))
+
+    mask_color_ratio = blue_ratio + white_ratio + black_ratio
+
+    # 3. Đánh giá trạng thái
+    is_masked = False
+    mask_status = "no_mask"
+    label = "Không đeo khẩu trang"
+    confidence = 0.85
+    ppe_compliant = False
+
+    if mouth_skin < 0.22 and (mask_color_ratio > 0.28 or lower_skin < 0.25):
+        if nose_skin > 0.45 and mouth_skin < 0.15:
+            # Mũi hở nhưng miệng che -> Đeo sai quy cách
+            is_masked = True
+            mask_status = "improper_mask"
+            label = "Đeo khẩu trang sai quy cách (tụt dưới mũi)"
+            confidence = round(float(np.clip(0.65 + (nose_skin - mouth_skin) * 0.4, 0.6, 0.96)), 2)
+            ppe_compliant = False
+        else:
+            is_masked = True
+            mask_status = "mask_on"
+            label = "Đã đeo khẩu trang chuẩn"
+            confidence = round(
+                float(np.clip(0.70 + mask_color_ratio * 0.35 + (upper_skin - lower_skin) * 0.25, 0.7, 0.98)),
+                2,
+            )
+            ppe_compliant = True
+    elif blue_ratio > 0.25 or (lower_skin < 0.30 and upper_skin > 0.45):
+        is_masked = True
+        mask_status = "mask_on"
+        label = "Đã đeo khẩu trang"
+        confidence = round(float(np.clip(0.70 + blue_ratio * 0.5, 0.65, 0.95)), 2)
+        ppe_compliant = True
+    else:
+        is_masked = False
+        mask_status = "no_mask"
+        label = "Chưa đeo khẩu trang"
+        confidence = round(float(np.clip(0.70 + lower_skin * 0.35, 0.65, 0.97)), 2)
+        ppe_compliant = False
+
+    return {
+        "is_masked": is_masked,
+        "mask_status": mask_status,
+        "label": label,
+        "confidence": confidence,
+        "ppe_compliant": ppe_compliant,
+        "metrics": {
+            "lower_skin_ratio": round(lower_skin, 3),
+            "upper_skin_ratio": round(upper_skin, 3),
+            "mask_color_ratio": round(mask_color_ratio, 3),
+        },
+    }
+
+
+def enhance_upper_face_for_masked(img: np.ndarray, facial_area: Dict[str, int]) -> np.ndarray:
+    """Tăng cường chi tiết vùng mắt & sống mũi (Periocular Enhancement) khi đối tượng đeo khẩu trang."""
+    h_img, w_img = img.shape[:2]
+    x = max(0, int(facial_area.get("x", 0)))
+    y = max(0, int(facial_area.get("y", 0)))
+    w = max(1, int(facial_area.get("w", w_img)))
+    h = max(1, int(facial_area.get("h", h_img)))
+
+    enhanced = img.copy()
+    upper_y_end = min(h_img, y + int(h * 0.6))
+    upper_roi = enhanced[y:upper_y_end, x : min(w_img, x + w)]
+    if upper_roi.size > 0:
+        lab = cv2.cvtColor(upper_roi, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
+        l_clahe = clahe.apply(l)
+        lab_boost = cv2.merge((l_clahe, a, b))
+        enhanced[y:upper_y_end, x : min(w_img, x + w)] = cv2.cvtColor(lab_boost, cv2.COLOR_LAB2BGR)
+    return enhanced

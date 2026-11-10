@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     status VARCHAR(50) DEFAULT 'Đúng giờ',
     check_type VARCHAR(30) DEFAULT 'Check-in',
     work_hours FLOAT DEFAULT 0.0,
+    mask_status VARCHAR(50) DEFAULT 'Không rõ',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -29,5 +30,5 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 INSERT INTO settings (key, value)
-VALUES ('shift_time', '08:00'), ('shift_end_time', '17:30')
+VALUES ('shift_time', '08:00'), ('shift_end_time', '17:30'), ('rtsp_url', '')
 ON CONFLICT (key) DO NOTHING;

@@ -17,6 +17,8 @@ import {
   Camera,
   LogIn,
   LogOut,
+  Video,
+  ShieldCheck,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -25,6 +27,12 @@ export default function AdminDashboard() {
 
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
+
+  // RTSP IP Camera Streaming State
+  const [rtspUrl, setRtspUrl] = useState('');
+  const [rtspInput, setRtspInput] = useState('');
+  const [isSavingRtsp, setIsSavingRtsp] = useState(false);
+  const [rtspSaveMsg, setRtspSaveMsg] = useState(null);
 
   // Bộ lọc & Tìm kiếm nhanh
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,10 +160,54 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchRtspUrl = async () => {
+    try {
+      const res = await fetch('/api/settings/rtsp', {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('token')}` },
+      });
+      const data = await res.json();
+      if (data.rtsp_url !== undefined) {
+        setRtspUrl(data.rtsp_url);
+        setRtspInput(data.rtsp_url);
+      }
+    } catch (err) {
+      console.error('Lỗi lấy cấu hình RTSP:', err);
+    }
+  };
+
+  const handleSaveRtsp = async (e) => {
+    e.preventDefault();
+    setIsSavingRtsp(true);
+    setRtspSaveMsg(null);
+    try {
+      const res = await fetch('/api/settings/rtsp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ rtsp_url: rtspInput }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRtspUrl(data.rtsp_url);
+        setRtspSaveMsg('Đã lưu cấu hình Camera RTSP thành công!');
+      } else {
+        setRtspSaveMsg('Lỗi: ' + (data.detail || data.error || 'Không thể lưu cấu hình'));
+      }
+    } catch (err) {
+      setRtspSaveMsg('Lỗi kết nối Server!');
+    } finally {
+      setIsSavingRtsp(false);
+      setTimeout(() => setRtspSaveMsg(null), 3500);
+    }
+  };
+
   useEffect(() => {
     fetchShiftTime();
     fetchLogs();
     fetchUsers();
+    fetchRtspUrl();
   }, [activeTab]);
 
   const handleExportCsv = async () => {
@@ -278,7 +330,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // Lọc log theo từ khóa & loại chấm công
+  // Lọc log theo từ khóa & loại chấm công & khẩu trang
   const filteredLogs = logs.filter((log) => {
     const q = searchQuery.trim().toLowerCase();
     const matchText =
@@ -289,6 +341,8 @@ export default function AdminDashboard() {
     if (filterType === 'Check-in') return (log.check_type || 'Check-in') === 'Check-in';
     if (filterType === 'Check-out') return log.check_type === 'Check-out';
     if (filterType === 'late') return log.status === 'Đi muộn';
+    if (filterType === 'mask_on') return (log.mask_status || '').toLowerCase().includes('đã đeo');
+    if (filterType === 'no_mask') return (log.mask_status || '').toLowerCase().includes('chưa') || (log.mask_status || '').toLowerCase().includes('sai');
     return true;
   });
 
@@ -333,13 +387,13 @@ export default function AdminDashboard() {
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-[#2d2d2d] pb-6 gap-4">
           <div>
             <h1 className="text-sm font-mono tracking-[2px] font-bold text-[#f8fafc] uppercase flex items-center gap-2">
-              Ứng dụng Quản trị FaceID AI v3.0
+              Ứng dụng Quản trị FaceID AI v3.1
               <span className="bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/30 text-[10px] px-2 py-0.5 rounded">
-                Check-in/Out + CLAHE + Anti-Spoof
+                Mask / PPE + RTSP CCTV + Multi-Face
               </span>
             </h1>
             <p className="text-[#64748b] font-mono text-[10px] uppercase tracking-wider mt-2">
-              Quản lý chấm công thông minh, Xuất báo cáo Excel/CSV &amp; Kiểm thử Thị giác máy tính.
+              Điểm danh luồng liên tục, Nhận diện khẩu trang &amp; Giám sát Camera IP RTSP an ninh.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -502,10 +556,10 @@ export default function AdminDashboard() {
 
         {/* Thanh Tabs + Bộ lọc tìm kiếm */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-[#2d2d2d]">
-          <div className="flex gap-4">
+          <div className="flex gap-4 overflow-x-auto pb-1 md:pb-0">
             <button
               onClick={() => setActiveTab('logs')}
-              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'logs'
                   ? 'text-[#34d399] border-b-2 border-[#34d399]'
                   : 'text-[#64748b] hover:text-white'
@@ -515,7 +569,7 @@ export default function AdminDashboard() {
             </button>
             <button
               onClick={() => setActiveTab('users')}
-              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'users'
                   ? 'text-[#34d399] border-b-2 border-[#34d399]'
                   : 'text-[#64748b] hover:text-white'
@@ -524,8 +578,18 @@ export default function AdminDashboard() {
               <Database className="w-4 h-4" /> Hồ sơ Nhân sự ({users.length})
             </button>
             <button
+              onClick={() => setActiveTab('rtsp_cctv')}
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'rtsp_cctv'
+                  ? 'text-[#34d399] border-b-2 border-[#34d399]'
+                  : 'text-[#64748b] hover:text-white'
+              }`}
+            >
+              <Video className="w-4 h-4" /> Camera RTSP CCTV
+            </button>
+            <button
               onClick={() => setActiveTab('ai_lab')}
-              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-3 font-mono text-[11px] uppercase tracking-wider font-bold transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'ai_lab'
                   ? 'text-[#34d399] border-b-2 border-[#34d399]'
                   : 'text-[#64748b] hover:text-white'
@@ -535,7 +599,7 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          {activeTab !== 'ai_lab' && (
+          {activeTab !== 'ai_lab' && activeTab !== 'rtsp_cctv' && (
             <div className="flex items-center gap-2 pb-2 md:pb-0">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-[#64748b] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -558,6 +622,8 @@ export default function AdminDashboard() {
                   <option value="Check-in">Chỉ Check-in (Vào ca)</option>
                   <option value="Check-out">Chỉ Check-out (Tan ca)</option>
                   <option value="late">Chỉ Đi muộn</option>
+                  <option value="mask_on">Chỉ Đã đeo khẩu trang</option>
+                  <option value="no_mask">Chưa đeo / Đeo sai khẩu trang</option>
                 </select>
               )}
             </div>
@@ -655,6 +721,7 @@ export default function AdminDashboard() {
                           <th className="px-6 py-3 font-normal">Mã Sinh Viên</th>
                           <th className="px-6 py-3 font-normal">Giờ quét</th>
                           <th className="px-6 py-3 font-normal">Phân loại</th>
+                          <th className="px-6 py-3 font-normal">Khẩu trang / PPE</th>
                           <th className="px-6 py-3 font-normal">Trạng thái</th>
                           <th className="px-6 py-3 font-normal text-right">Số giờ làm</th>
                         </tr>
@@ -682,6 +749,24 @@ export default function AdminDashboard() {
                                   <LogIn className="w-3 h-3" /> Check-in
                                 </span>
                               )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold border rounded-sm uppercase tracking-wider ${
+                                  (log.mask_status || '').toLowerCase().includes('đã đeo')
+                                    ? 'text-[#38bdf8] bg-[#38bdf8]/10 border-[#38bdf8]/30'
+                                    : (log.mask_status || '').toLowerCase().includes('sai')
+                                    ? 'text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/30'
+                                    : (log.mask_status || '').toLowerCase().includes('chưa')
+                                    ? 'text-[#94a3b8] bg-[#94a3b8]/10 border-[#94a3b8]/30'
+                                    : 'text-[#64748b] bg-[#64748b]/10 border-[#64748b]/30'
+                                }`}
+                              >
+                                {(log.mask_status || '').toLowerCase().includes('đã đeo') && (
+                                  <ShieldCheck className="w-3 h-3" />
+                                )}
+                                {log.mask_status || 'Không rõ'}
+                              </span>
                             </td>
                             <td className="px-6 py-4">
                               <span
@@ -907,6 +992,32 @@ export default function AdminDashboard() {
                     </p>
                   </div>
 
+                  {testResult.mask && (
+                    <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#64748b] uppercase">Khẩu Trang / PPE:</span>
+                        <span
+                          className={`font-bold px-2.5 py-0.5 rounded text-[11px] ${
+                            testResult.mask.ppe_compliant
+                              ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
+                              : 'bg-[#f59e0b]/15 text-[#f59e0b] border border-[#f59e0b]/30'
+                          }`}
+                        >
+                          {testResult.mask.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#64748b]">Tỉ lệ che phủ / Độ tin cậy:</span>
+                        <span className="text-white font-bold">
+                          {Math.round((testResult.mask.confidence || 0) * 100)}%
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[#94a3b8] pt-1 border-t border-[#222]">
+                        {testResult.mask.details}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded space-y-1">
                     <p className="text-[#34d399] font-bold uppercase text-[11px]">
                       Vector ArcFace ({testResult.vector_length} chiều - Chuẩn hóa L2)
@@ -918,6 +1029,120 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: GIÁM SÁT CAMERA RTSP CCTV & MULTI-FACE TRACKING */}
+        {activeTab === 'rtsp_cctv' && (
+          <div className="space-y-6">
+            <div className="bg-[#15171c] border border-[#2d2d2d] p-6 rounded-md">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 pb-4 border-b border-[#2d2d2d]">
+                <div>
+                  <h3 className="font-mono text-xs font-bold uppercase text-[#34d399] flex items-center gap-2">
+                    <Video className="w-4 h-4" /> Cấu hình Luồng RTSP IP Camera An Ninh
+                  </h3>
+                  <p className="text-[#64748b] font-mono text-[11px] mt-1">
+                    Hỗ trợ Camera Dahua, Hikvision, Ezviz, Uniview hoặc camera chuẩn ONVIF/RTSP.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#34d399]/10 border border-[#34d399]/30 text-[#34d399] font-mono text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-[#34d399] animate-pulse" />
+                    LIVE HUD OVERLAY
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveRtsp} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-[#64748b] mb-2">
+                    Đường dẫn RTSP Stream URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={rtspInput}
+                      onChange={(e) => setRtspInput(e.target.value)}
+                      placeholder="rtsp://admin:pass@192.168.1.100:554/live/ch0 (hoặc 0 để dùng Webcam máy trạm)"
+                      className="flex-1 bg-[#0a0b0d] border border-[#333] focus:border-[#34d399] text-white px-3 py-2 font-mono text-xs outline-none rounded-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSavingRtsp}
+                      className="bg-[#34d399] text-black px-5 py-2 font-mono text-xs font-bold uppercase rounded-sm hover:bg-[#2dbb86] disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSavingRtsp ? 'Đang lưu...' : 'Lưu RTSP'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-mono text-[#64748b] mt-2">
+                    Gợi ý: Điền <span className="text-[#38bdf8]">0</span> để tự động trỏ về Webcam cục bộ, hoặc điền URL RTSP từ Camera IP. Nếu chưa có camera IP thật, hệ thống tự động sinh luồng CCTV giả lập thông minh.
+                  </p>
+                </div>
+
+                {rtspSaveMsg && (
+                  <div className="bg-[#34d399]/10 border border-[#34d399]/40 text-[#34d399] px-3 py-2 rounded text-xs font-mono">
+                    {rtspSaveMsg}
+                  </div>
+                )}
+              </form>
+            </div>
+
+            {/* Video Player Box */}
+            <div className="bg-[#15171c] border border-[#2d2d2d] p-6 rounded-md">
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs font-bold uppercase text-[#f8fafc] flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#f43f5e] animate-pulse" />
+                  Luồng Giám Sát Trực Tiếp (/api/rtsp/stream)
+                </span>
+                <span className="text-[#64748b] font-mono text-[11px]">
+                  SSD Multi-Face Tracker + Periocular CLAHE
+                </span>
+              </div>
+
+              <div className="relative bg-black rounded overflow-hidden border border-[#2d2d2d] flex items-center justify-center min-h-[380px]">
+                <img
+                  src="/api/rtsp/stream"
+                  alt="Live RTSP Multi-Face Feed"
+                  className="w-full h-full object-contain max-h-[540px]"
+                />
+                <div className="absolute top-4 left-4 bg-[#0a0b0d]/80 backdrop-blur-sm border border-[#34d399]/40 text-[#34d399] px-3 py-1.5 rounded font-mono text-xs flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#34d399] animate-ping" />
+                  AI MULTI-FACE WALK-THROUGH ACTIVE
+                </div>
+                <div className="absolute bottom-4 left-4 right-4 bg-[#0a0b0d]/80 backdrop-blur-sm border border-[#2d2d2d] px-4 py-2 rounded flex items-center justify-between font-mono text-[11px] text-[#94a3b8]">
+                  <span>Trạng thái: Đang phân tích luồng thời gian thực</span>
+                  <span>Nhận diện đồng thời nhiều người + Tự động bù sáng vùng mắt</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded">
+                  <p className="text-[#34d399] font-mono text-xs font-bold uppercase mb-1">
+                    Multi-Face Walk-Through
+                  </p>
+                  <p className="text-[#94a3b8] text-[11px] font-mono">
+                    Thuật toán SSD DeepFace trích xuất đồng thời toàn bộ khuôn mặt trong khung hình, hỗ trợ đi bộ theo nhóm qua cổng kiểm soát.
+                  </p>
+                </div>
+                <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded">
+                  <p className="text-[#38bdf8] font-mono text-xs font-bold uppercase mb-1">
+                    Phát hiện Khẩu trang / PPE
+                  </p>
+                  <p className="text-[#94a3b8] text-[11px] font-mono">
+                    Tự động nhận diện khẩu trang phẫu thuật, khẩu trang đen/trắng, phân loại tuân thủ an toàn &amp; kích hoạt Periocular ArcFace.
+                  </p>
+                </div>
+                <div className="bg-[#0a0b0d] border border-[#2d2d2d] p-4 rounded">
+                  <p className="text-[#f59e0b] font-mono text-xs font-bold uppercase mb-1">
+                    Tương thích RTSP / ONVIF
+                  </p>
+                  <p className="text-[#94a3b8] text-[11px] font-mono">
+                    Kết nối camera an ninh IP hiện hữu thông qua giao thức chuẩn RTSP H.264/MJPEG không cần thay đổi phần cứng.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}

@@ -6,12 +6,14 @@ import logging
 import os
 import re
 import secrets
+import time
 from typing import Tuple
 
 import cv2
 from deepface import DeepFace
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 import numpy as np
@@ -28,16 +30,20 @@ from database import (
     get_all_users,
     get_employee_summary,
     get_image_from_minio,
+    get_rtsp_url,
     get_shift_time,
     init_db,
     log_attendance,
     register_user,
+    update_rtsp_url,
     update_shift_time,
 )
 from tasks import process_face_recognition
 from vision_pipeline import (
     check_face_liveness,
+    detect_mask_and_ppe,
     enhance_face_image,
+    enhance_upper_face_for_masked,
     normalize_embedding,
 )
 
@@ -235,6 +241,7 @@ def export_attendance_csv(admin: str = Depends(get_current_admin)):
             "Phân Loại",
             "Trạng Thái",
             "Số Giờ Làm (h)",
+            "Khẩu Trang / PPE",
         ]
     )
 
@@ -251,6 +258,7 @@ def export_attendance_csv(admin: str = Depends(get_current_admin)):
                 log.get("check_type", "Check-in"),
                 log.get("status", ""),
                 log.get("work_hours", 0.0),
+                log.get("mask_status", "Không rõ"),
             ]
         )
 
@@ -278,6 +286,7 @@ async def extract_face(file: UploadFile = File(...)):
         embedding_vector = normalize_embedding(results[0]["embedding"])
         facial_area = results[0].get("facial_area", {})
         liveness = check_face_liveness(img, facial_area)
+        mask = detect_mask_and_ppe(img, facial_area)
 
         return {
             "message": "AI đã trích xuất và chuẩn hóa khuôn mặt thành công!",
@@ -286,6 +295,7 @@ async def extract_face(file: UploadFile = File(...)):
             "vector_sample": embedding_vector[:5],
             "quality": quality,
             "liveness": liveness,
+            "mask": mask,
         }
 
     except ValueError as ve:
@@ -413,7 +423,7 @@ async def recognize_face(file: UploadFile = File(...)):
                 "quality": quality,
             }
 
-        # 2. Phát hiện khuôn mặt & Trích xuất Vector 512 chiều trên ảnh đã cân bằng sáng
+        # 2. Phát hiện TẤT CẢ khuôn mặt & Trích xuất Vector 512 chiều (Walk-Through Multi-Face)
         results = DeepFace.represent(
             img_path=enhanced_img,
             model_name="ArcFace",
@@ -422,58 +432,87 @@ async def recognize_face(file: UploadFile = File(...)):
             align=True,
         )
 
-        if len(results) > 1:
-            return {
-                "status": "warning",
-                "message": "Cảnh báo: Phát hiện nhiều khuôn mặt. Vui lòng quét từng người!",
+        faces_output = []
+        known_users = []
+        any_spoof = False
+        spoof_msg = ""
+
+        for face_res in results:
+            facial_area = face_res.get("facial_area", {})
+            box = {
+                "x": int(facial_area.get("x", 0)),
+                "y": int(facial_area.get("y", 0)),
+                "w": int(facial_area.get("w", 0)),
+                "h": int(facial_area.get("h", 0)),
             }
 
-        target_embedding = results[0]["embedding"]
-        facial_area = results[0].get("facial_area", {})
-        box = {
-            "x": facial_area.get("x", 0),
-            "y": facial_area.get("y", 0),
-            "w": facial_area.get("w", 0),
-            "h": facial_area.get("h", 0),
-        }
+            # 3. Kiểm tra chống giả mạo (Anti-Spoofing / Liveness Check)
+            liveness = check_face_liveness(img, box)
+            if not liveness["is_live"]:
+                any_spoof = True
+                spoof_msg = liveness["reason"]
 
-        # 3. Kiểm tra chống giả mạo (Hybrid Face Anti-Spoofing / Liveness Check)
-        liveness = check_face_liveness(img, box)
-        if not liveness["is_live"]:
-            logger.warning(f"Chặn nghi vấn giả mạo khuôn mặt (score={liveness['liveness_score']})")
-            return {
-                "status": "spoof",
-                "message": liveness["reason"],
-                "liveness": liveness,
-                "quality": quality,
+            # 4. Nhận diện Khẩu trang & Trang bị bảo hộ (Face Mask & PPE Detection)
+            mask_info = detect_mask_and_ppe(img, box)
+
+            # 5. Đối sánh Vector chuẩn hóa L2 với cơ chế thích ứng cho người đeo khẩu trang
+            target_embedding = face_res["embedding"]
+            matching_threshold = 0.40 if mask_info["is_masked"] else 0.45
+            found, match_info, similarity_score = find_match_in_db(
+                target_embedding, threshold_score=matching_threshold
+            )
+
+            face_item = {
                 "box": box,
-            }
-
-        # 4. Đối sánh Vector chuẩn hóa L2 với cơ chế Multi-Embedding Consensus trong Qdrant
-        found, match_info, similarity_score = find_match_in_db(target_embedding)
-
-        if found:
-            attendance_info = log_attendance(match_info["name"], match_info["student_code"])
-            return {
-                "status": "success",
-                "message": "Xin chào người quen!",
-                "user": match_info,
-                "attendance": attendance_info,
-                "distance": round(similarity_score, 4),
-                "confidence": round(similarity_score * 100, 1),
                 "liveness": liveness,
-                "quality": quality,
-                "box": box,
-            }
-        else:
-            return {
-                "status": "unknown",
-                "message": "Cảnh báo: Phát hiện người lạ!",
+                "mask": mask_info,
+                "is_known": found,
+                "user": match_info if found else None,
                 "distance": round(similarity_score, 4) if similarity_score else None,
-                "liveness": liveness,
-                "quality": quality,
-                "box": box,
+                "confidence": round(similarity_score * 100, 1) if similarity_score else None,
             }
+
+            if found and liveness["is_live"]:
+                attendance_info = log_attendance(
+                    match_info["name"],
+                    match_info["student_code"],
+                    mask_status=mask_info["label"],
+                )
+                face_item["attendance"] = attendance_info
+                known_users.append(match_info["name"])
+
+            faces_output.append(face_item)
+
+        # Xác định trạng thái tổng thể
+        if any_spoof:
+            status = "spoof"
+            message = spoof_msg or "Cảnh báo an ninh: Phát hiện dấu hiệu giả mạo khuôn mặt!"
+        elif len(known_users) > 0:
+            status = "success"
+            if len(known_users) == 1:
+                message = f"Xin chào {known_users[0]}!"
+            else:
+                message = f"Điểm danh thành công nhóm {len(known_users)} người: {', '.join(known_users)}!"
+        else:
+            status = "unknown"
+            message = "Cảnh báo: Phát hiện người lạ!"
+
+        primary_face = faces_output[0] if faces_output else {}
+        return {
+            "status": status,
+            "message": message,
+            "faces_count": len(faces_output),
+            "faces": faces_output,
+            # Tương thích ngược với Single Face API:
+            "user": primary_face.get("user"),
+            "box": primary_face.get("box"),
+            "attendance": primary_face.get("attendance"),
+            "liveness": primary_face.get("liveness"),
+            "mask": primary_face.get("mask"),
+            "distance": primary_face.get("distance"),
+            "confidence": primary_face.get("confidence"),
+            "quality": quality,
+        }
 
     except ValueError:
         return {"status": "error", "message": "Không tìm thấy khuôn mặt trong ảnh!"}
@@ -522,6 +561,166 @@ def get_shift_time_api():
 def update_shift_time_api(data: ShiftTimeUpdate, admin: str = Depends(get_current_admin)):
     update_shift_time(data.shift_time)
     return {"message": "Cập nhật giờ vào ca thành công!", "shift_time": data.shift_time}
+
+
+class RtspUrlUpdate(BaseModel):
+    rtsp_url: str
+
+
+@app.get("/api/settings/rtsp")
+def get_rtsp_config():
+    return {"rtsp_url": get_rtsp_url()}
+
+
+@app.post("/api/settings/rtsp")
+def update_rtsp_config(data: RtspUrlUpdate, admin: str = Depends(get_current_admin)):
+    update_rtsp_url(data.rtsp_url)
+    return {"message": "Cập nhật RTSP URL thành công!", "rtsp_url": data.rtsp_url}
+
+
+@app.get("/api/rtsp/stream")
+def stream_rtsp_feed():
+    """
+    Live Video Stream MJPEG từ Camera IP RTSP (hoặc Simulation Stream nếu chưa nối camera vật lý)
+    với thuật toán AI Walk-Through Multi-Face & Khẩu trang PPE trực tiếp trên luồng video.
+    """
+    rtsp_url = get_rtsp_url().strip()
+
+    def generate_frames():
+        source = rtsp_url if rtsp_url else 0
+        cap = None
+        is_fallback = False
+        try:
+            cap = cv2.VideoCapture(source)
+            if not cap.isOpened():
+                is_fallback = True
+        except Exception:
+            is_fallback = True
+
+        frame_idx = 0
+        cached_faces = []
+
+        try:
+            while True:
+                if is_fallback:
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                    cv2.rectangle(frame, (10, 10), (630, 470), (45, 45, 45), 2)
+                    cv2.line(frame, (0, 240), (640, 240), (20, 35, 20), 1)
+                    cv2.line(frame, (320, 0), (320, 480), (20, 35, 20), 1)
+                    cv2.putText(
+                        frame,
+                        "CCTV RTSP LIVE FEED - CAMERA IP ENTRANCE",
+                        (25, 45),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (52, 211, 153),
+                        2,
+                    )
+                    cv2.putText(
+                        frame,
+                        f"RTSP SOURCE: {rtsp_url if rtsp_url else 'DEMO SIMULATION (NO RTSP CONFIGURED)'}",
+                        (25, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (148, 163, 184),
+                        1,
+                    )
+                    cv2.putText(
+                        frame,
+                        f"TIME: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                        (25, 110),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (56, 189, 248),
+                        1,
+                    )
+                    cv2.putText(
+                        frame,
+                        "[MULTI-FACE WALK-THROUGH AI MONITOR ACTIVE]",
+                        (25, 140),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (52, 211, 153),
+                        1,
+                    )
+                    cv2.putText(
+                        frame,
+                        "Hay nhap RTSP URL (Hikvision/Dahua) trong Admin Tab 'Camera RTSP'",
+                        (25, 260),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (234, 179, 8),
+                        1,
+                    )
+                    time.sleep(0.12)
+                else:
+                    ret, frame = cap.read()
+                    if not ret:
+                        time.sleep(0.5)
+                        continue
+
+                    frame_idx += 1
+                    if frame_idx % 4 == 0:
+                        try:
+                            results = DeepFace.represent(
+                                img_path=frame,
+                                model_name="ArcFace",
+                                detector_backend="ssd",
+                                enforce_detection=False,
+                                align=False,
+                            )
+                            cached_faces = []
+                            if results and results[0].get("facial_area", {}).get("w", 0) > 25:
+                                for r in results:
+                                    fa = r.get("facial_area", {})
+                                    b = {
+                                        "x": int(fa.get("x", 0)),
+                                        "y": int(fa.get("y", 0)),
+                                        "w": int(fa.get("w", 0)),
+                                        "h": int(fa.get("h", 0)),
+                                    }
+                                    mask = detect_mask_and_ppe(frame, b)
+                                    th = 0.40 if mask["is_masked"] else 0.45
+                                    found, user_info, _ = find_match_in_db(
+                                        r["embedding"], threshold_score=th
+                                    )
+                                    cached_faces.append(
+                                        {"box": b, "mask": mask, "user": user_info, "found": found}
+                                    )
+                        except Exception:
+                            pass
+
+                    for item in cached_faces:
+                        b = item["box"]
+                        x, y, w, h = b["x"], b["y"], b["w"], b["h"]
+                        is_known = item["found"]
+                        color = (82, 211, 52) if is_known else (94, 63, 244)  # BGR
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                        name_str = item["user"]["name"] if is_known else "UNKNOWN"
+                        mask_str = "[MASK ON]" if item["mask"]["is_masked"] else "[NO MASK]"
+                        cv2.putText(
+                            frame,
+                            f"{name_str} {mask_str}",
+                            (x, max(20, y - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            color,
+                            2,
+                        )
+
+                _, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
+                )
+        finally:
+            if cap and cap.isOpened():
+                cap.release()
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
 
 
 @app.delete("/api/users/{student_code}")

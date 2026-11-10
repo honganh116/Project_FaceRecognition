@@ -15,6 +15,7 @@ import {
   VolumeX,
   LogOut,
   LogIn,
+  Video,
 } from 'lucide-react';
 
 export default function CameraView() {
@@ -33,6 +34,8 @@ export default function CameraView() {
   const [isAutoScan, setIsAutoScan] = useState(true);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [edgeHint, setEdgeHint] = useState('Đang giám sát vùng nhận diện...');
+  const [videoSource, setVideoSource] = useState('webcam'); // 'webcam' | 'rtsp'
+  const [detectedFacesList, setDetectedFacesList] = useState([]);
 
   // Tổng hợp hiệu ứng âm thanh điện tử (Web Audio API) không cần file MP3 ngoài
   const playChime = useCallback(
@@ -123,66 +126,96 @@ export default function CameraView() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  const drawTrackingBox = useCallback((box, boxType, labelText, subLabelText = '') => {
+  const drawMultiTrackingBoxes = useCallback((faces) => {
     const canvas = overlayRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!box || box.w <= 0) return;
+    if (!faces || faces.length === 0) return;
 
-    const colorMap = {
-      success: '#34d399',
-      spoof: '#f97316',
-      unknown: '#f43f5e',
-    };
-    const color = colorMap[boxType] || '#f43f5e';
-    const mirroredX = canvas.width - box.x - box.w;
-    const y = box.y;
-    const w = box.w;
-    const h = box.h;
+    faces.forEach((face) => {
+      const box = face.box;
+      if (!box || box.w <= 0) return;
 
-    ctx.strokeStyle = `${color}55`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(mirroredX, y, w, h);
+      const isKnown = face.is_known;
+      const isSpoof = face.liveness && !face.liveness.is_live;
+      const maskInfo = face.mask || {};
+      const isMasked = maskInfo.is_masked;
+      const improperMask = maskInfo.mask_status === 'improper_mask';
 
-    const cornerLen = Math.min(28, w * 0.22, h * 0.22);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(mirroredX, y + cornerLen);
-    ctx.lineTo(mirroredX, y);
-    ctx.lineTo(mirroredX + cornerLen, y);
-    ctx.moveTo(mirroredX + w - cornerLen, y);
-    ctx.lineTo(mirroredX + w, y);
-    ctx.lineTo(mirroredX + w, y + cornerLen);
-    ctx.moveTo(mirroredX, y + h - cornerLen);
-    ctx.lineTo(mirroredX, y + h);
-    ctx.lineTo(mirroredX + cornerLen, y + h);
-    ctx.moveTo(mirroredX + w - cornerLen, y + h);
-    ctx.lineTo(mirroredX + w, y + h);
-    ctx.lineTo(mirroredX + w, y + h - cornerLen);
-    ctx.stroke();
+      let color = '#f43f5e'; // unknown: đỏ
+      let mainLabel = 'UNKNOWN PERSON';
 
-    ctx.font = 'bold 16px monospace';
-    const textWidth = ctx.measureText(labelText).width;
-    ctx.fillStyle = 'rgba(10, 11, 13, 0.85)';
-    ctx.fillRect(mirroredX, Math.max(0, y - 34), textWidth + 20, 28);
-    ctx.fillStyle = color;
-    ctx.fillText(labelText, mirroredX + 10, Math.max(20, y - 14));
+      if (isSpoof) {
+        color = '#f97316'; // spoof: cam
+        mainLabel = 'SPOOF DETECTED';
+      } else if (isKnown) {
+        if (isMasked) {
+          color = '#38bdf8'; // masked: xanh dương
+        } else {
+          color = '#34d399'; // standard known: xanh ngọc
+        }
+        const confText = face.confidence ? ` • ${face.confidence}%` : '';
+        mainLabel = `${face.user?.name || 'VERIFIED'}${confText}`;
+      }
 
-    if (subLabelText) {
-      ctx.font = '12px monospace';
-      const subWidth = ctx.measureText(subLabelText).width;
-      ctx.fillStyle = 'rgba(10, 11, 13, 0.85)';
-      ctx.fillRect(mirroredX, y + h + 6, subWidth + 16, 22);
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(subLabelText, mirroredX + 8, y + h + 21);
-    }
+      const mirroredX = canvas.width - box.x - box.w;
+      const y = box.y;
+      const w = box.w;
+      const h = box.h;
+
+      ctx.strokeStyle = `${color}44`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(mirroredX, y, w, h);
+
+      // HUD 4 góc sắc nét
+      const cornerLen = Math.min(26, w * 0.22, h * 0.22);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(mirroredX, y + cornerLen);
+      ctx.lineTo(mirroredX, y);
+      ctx.lineTo(mirroredX + cornerLen, y);
+      ctx.moveTo(mirroredX + w - cornerLen, y);
+      ctx.lineTo(mirroredX + w, y);
+      ctx.lineTo(mirroredX + w, y + cornerLen);
+      ctx.moveTo(mirroredX, y + h - cornerLen);
+      ctx.lineTo(mirroredX, y + h);
+      ctx.lineTo(mirroredX + cornerLen, y + h);
+      ctx.moveTo(mirroredX + w - cornerLen, y + h);
+      ctx.lineTo(mirroredX + w, y + h);
+      ctx.lineTo(mirroredX + w, y + h - cornerLen);
+      ctx.stroke();
+
+      // Nhãn tên chính phía trên
+      ctx.font = 'bold 15px monospace';
+      const textWidth = ctx.measureText(mainLabel).width;
+      ctx.fillStyle = 'rgba(10, 11, 13, 0.88)';
+      ctx.fillRect(mirroredX, Math.max(0, y - 32), textWidth + 18, 26);
+      ctx.fillStyle = color;
+      ctx.fillText(mainLabel, mirroredX + 8, Math.max(18, y - 14));
+
+      // Nhãn khẩu trang & PPE phía dưới
+      let subLabel = improperMask
+        ? '⚠️ KHẨU TRANG TỤT MŨI'
+        : isMasked
+        ? '✓ ĐÃ ĐEO KHẨU TRANG'
+        : '● CHƯA ĐEO KHẨU TRANG';
+      if (isSpoof) subLabel = 'ANTI-SPOOF BLOCKED';
+
+      ctx.font = '11px monospace';
+      const subWidth = ctx.measureText(subLabel).width;
+      ctx.fillStyle = 'rgba(10, 11, 13, 0.88)';
+      ctx.fillRect(mirroredX, y + h + 6, subWidth + 14, 20);
+      ctx.fillStyle = improperMask ? '#eab308' : isMasked ? '#38bdf8' : '#cbd5e1';
+      ctx.fillText(subLabel, mirroredX + 6, y + h + 20);
+    });
   }, []);
 
   const triggerScan = useCallback(
     async (isAutoTriggered = false) => {
+      if (videoSource === 'rtsp') return; // Trong chế độ RTSP stream đã tự động xử lý trên backend
       if (!videoRef.current || isProcessingRef.current) return;
       const video = videoRef.current;
       if (video.videoWidth === 0) return;
@@ -244,76 +277,57 @@ export default function CameraView() {
               return;
             }
 
-            if (data.status === 'warning') {
-              playChime('unknown');
-              speakVietnamese('Vui lòng bước vào khung hình từng người một.');
-              setStatus('warning');
-              cooldownUntilRef.current = Date.now() + 3200;
-              setTimeout(() => {
-                setStatus('idle');
-                isProcessingRef.current = false;
-                clearOverlay();
-              }, 3000);
-              return;
-            }
+            // Xử lý danh sách khuôn mặt (Walk-Through Multi-Face)
+            const allFaces = data.faces && data.faces.length > 0 ? data.faces : [];
+            setDetectedFacesList(allFaces);
+            drawMultiTrackingBoxes(allFaces);
 
             if (data.status === 'spoof') {
               playChime('spoof');
               speakVietnamese('Cảnh báo an ninh! Phát hiện dấu hiệu giả mạo khuôn mặt.');
-              const livePct = data.liveness
-                ? `${Math.round(data.liveness.liveness_score * 100)}%`
-                : 'LOW';
-              drawTrackingBox(
-                data.box,
-                'spoof',
-                'SPOOF DETECTED',
-                `Liveness: ${livePct} | Anti-Spoofing Blocked`
-              );
               setErrorMessage(data.message || 'Phát hiện dấu hiệu giả mạo khuôn mặt!');
-              setTelemetry({ liveness: data.liveness, quality: data.quality });
+              setTelemetry({ liveness: data.liveness, quality: data.quality, mask: data.mask });
               setStatus('spoof');
               cooldownUntilRef.current = Date.now() + 4000;
               setTimeout(() => {
                 setStatus('idle');
                 isProcessingRef.current = false;
                 clearOverlay();
+                setDetectedFacesList([]);
               }, 3500);
               return;
             }
 
-            const isKnown = !!data.user;
-            const simPct = data.distance ? `${Math.round(data.distance * 100)}%` : '';
-            const livePct = data.liveness
-              ? `Live: ${Math.round(data.liveness.liveness_score * 100)}%`
-              : '';
-
-            drawTrackingBox(
-              data.box,
-              isKnown ? 'success' : 'unknown',
-              isKnown ? `VERIFIED • ${simPct}` : 'UNKNOWN PERSON',
-              `${livePct} | CLAHE Enhanced | Blur: ${data.quality?.blur_score ?? '-'}`
-            );
+            const recognizedFaces = allFaces.filter((f) => f.is_known);
+            const isKnown = recognizedFaces.length > 0;
 
             setTelemetry({
-              confidence: simPct,
+              confidence: data.confidence ? `${data.confidence}%` : '',
               liveness: data.liveness,
               quality: data.quality,
+              mask: data.mask,
             });
 
             if (isKnown) {
               playChime('success');
-              const att = data.attendance || {};
+              const primaryFace = recognizedFaces[0];
+              const att = primaryFace.attendance || data.attendance || {};
               setAttendanceInfo(att);
-              setUser(data.user);
+              setUser(primaryFace.user || data.user);
               setStatus('success');
 
-              if (att.check_type === 'Check-out') {
+              const recognizedNames = recognizedFaces.map((f) => f.user?.name).filter(Boolean);
+              if (recognizedNames.length > 1) {
                 speakVietnamese(
-                  `Chào tạm biệt ${data.user.name}. Bạn đã chấm công tan ca, tổng số giờ làm là ${att.work_hours} giờ.`
+                  `Xin chào ${recognizedNames.join(' và ')}. Chấm công hàng loạt thành công!`
+                );
+              } else if (att.check_type === 'Check-out') {
+                speakVietnamese(
+                  `Chào tạm biệt ${primaryFace.user?.name || data.user?.name}. Bạn đã chấm công tan ca, tổng số giờ làm là ${att.work_hours} giờ.`
                 );
               } else {
                 speakVietnamese(
-                  `Xin chào ${data.user.name}. Chấm công vào ca ${att.status || 'thành công'}.`
+                  `Xin chào ${primaryFace.user?.name || data.user?.name}. Chấm công vào ca ${att.status || 'thành công'}.`
                 );
               }
             } else {
@@ -327,7 +341,8 @@ export default function CameraView() {
               setStatus('idle');
               isProcessingRef.current = false;
               clearOverlay();
-            }, 3400);
+              setDetectedFacesList([]);
+            }, 3600);
           } catch (error) {
             console.error('Lỗi API:', error);
             setStatus('idle');
@@ -339,7 +354,7 @@ export default function CameraView() {
         0.92
       );
     },
-    [clearOverlay, drawTrackingBox, playChime, speakVietnamese]
+    [clearOverlay, drawMultiTrackingBoxes, playChime, speakVietnamese, videoSource]
   );
 
   useEffect(() => {
@@ -421,20 +436,35 @@ export default function CameraView() {
 
   return (
     <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        className="absolute w-full h-full object-cover transform -scale-x-100 opacity-85"
-      />
-      <canvas
-        ref={overlayRef}
-        className="absolute w-full h-full object-cover pointer-events-none z-10"
-      />
+      {videoSource === 'webcam' ? (
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            className="absolute w-full h-full object-cover transform -scale-x-100 opacity-85"
+          />
+          <canvas
+            ref={overlayRef}
+            className="absolute w-full h-full object-cover pointer-events-none z-10"
+          />
 
-      <div className="absolute w-72 h-80 border border-[#34d399]/20 rounded-3xl pointer-events-none z-10 flex items-center justify-center">
-        <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#34d399]/25 to-transparent" />
-      </div>
+          <div className="absolute w-72 h-80 border border-[#34d399]/20 rounded-3xl pointer-events-none z-10 flex items-center justify-center">
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#34d399]/25 to-transparent" />
+          </div>
+        </>
+      ) : (
+        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center bg-[#0a0b0d]">
+          <img
+            src="/api/rtsp/stream"
+            alt="Live RTSP AI Feed"
+            className="w-full h-full object-contain"
+          />
+          <div className="absolute top-20 left-8 bg-[#15171c]/90 border border-[#eab308]/50 px-4 py-2 rounded font-mono text-xs text-[#eab308] z-20">
+            ● LUỒNG CAMERA AN NINH RTSP • ĐA DIỆN WALK-THROUGH AI
+          </div>
+        </div>
+      )}
 
       {/* Header & Trạng thái AI Pipeline */}
       <div className="absolute top-8 left-8 z-20 pointer-events-none space-y-2">
@@ -443,24 +473,37 @@ export default function CameraView() {
         </h2>
         <div className="flex items-center gap-3">
           <p className="text-[#34d399] font-mono text-xs tracking-widest uppercase animate-pulse">
-            ● {edgeHint}
+            ● {videoSource === 'rtsp' ? 'Đang stream luồng camera an ninh RTSP...' : edgeHint}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
           <span className="bg-[#15171c]/80 border border-[#2d2d2d] text-[#94a3b8] font-mono text-[10px] px-2.5 py-1 rounded uppercase">
-            ArcFace 512D + L2 Norm
+            Multi-Face Walk-Through
           </span>
           <span className="bg-[#15171c]/80 border border-[#2d2d2d] text-[#34d399] font-mono text-[10px] px-2.5 py-1 rounded uppercase flex items-center gap-1">
             <Sparkles className="w-3 h-3" /> CLAHE Auto-HDR
           </span>
           <span className="bg-[#15171c]/80 border border-[#2d2d2d] text-[#38bdf8] font-mono text-[10px] px-2.5 py-1 rounded uppercase">
-            Check-in / Check-out + Voice AI
+            Khẩu trang PPE &amp; RTSP Stream
           </span>
         </div>
       </div>
 
-      {/* Cụm nút điều khiển Auto-Scan & Trợ lý Giọng nói AI */}
+      {/* Cụm nút điều khiển Auto-Scan & Trợ lý Giọng nói AI & Nguồn Camera */}
       <div className="absolute top-8 right-8 z-30 flex items-center gap-2.5">
+        <button
+          onClick={() => setVideoSource(videoSource === 'webcam' ? 'rtsp' : 'webcam')}
+          className={`px-3.5 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-1.5 cursor-pointer ${
+            videoSource === 'rtsp'
+              ? 'bg-[#eab308]/15 border-[#eab308] text-[#eab308] shadow-[0_0_15px_rgba(234,179,8,0.2)]'
+              : 'bg-[#15171c]/90 border-[#333] text-[#94a3b8] hover:text-white'
+          }`}
+          title="Chuyển đổi nguồn giữa Webcam máy tính và Camera IP RTSP"
+        >
+          <Video className="w-4 h-4" />
+          {videoSource === 'rtsp' ? 'Nguồn: RTSP CCTV' : 'Nguồn: Webcam Kiosk'}
+        </button>
+
         <button
           onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
           className={`px-3.5 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-2 cursor-pointer ${
@@ -474,28 +517,32 @@ export default function CameraView() {
           {isVoiceEnabled ? 'Giọng nói AI' : 'Tắt tiếng'}
         </button>
 
-        <button
-          onClick={() => setIsAutoScan(!isAutoScan)}
-          className={`px-4 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-2 cursor-pointer ${
-            isAutoScan
-              ? 'bg-[#34d399]/15 border-[#34d399] text-[#34d399] shadow-[0_0_20px_rgba(52,211,153,0.25)]'
-              : 'bg-[#15171c]/90 border-[#333] text-[#94a3b8] hover:text-white'
-          }`}
-        >
-          <Zap className="w-4 h-4" />
-          {isAutoScan ? 'Auto-Scan: BẬT' : 'Auto-Scan: TẮT'}
-        </button>
+        {videoSource === 'webcam' && (
+          <button
+            onClick={() => setIsAutoScan(!isAutoScan)}
+            className={`px-4 py-2 rounded-full font-mono text-xs uppercase font-bold tracking-wider border transition-all flex items-center gap-2 cursor-pointer ${
+              isAutoScan
+                ? 'bg-[#34d399]/15 border-[#34d399] text-[#34d399] shadow-[0_0_20px_rgba(52,211,153,0.25)]'
+                : 'bg-[#15171c]/90 border-[#333] text-[#94a3b8] hover:text-white'
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            {isAutoScan ? 'Auto-Scan: BẬT' : 'Auto-Scan: TẮT'}
+          </button>
+        )}
       </div>
 
       {/* Nút bấm chấm công thủ công */}
-      <button
-        onClick={() => triggerScan(false)}
-        disabled={status !== 'idle'}
-        className="absolute bottom-24 z-40 bg-[#34d399] text-black px-10 py-4 rounded-full font-bold font-mono tracking-[2px] uppercase shadow-[0_0_30px_rgba(52,211,153,0.3)] hover:bg-[#2dbb86] hover:scale-105 hover:shadow-[0_0_40px_rgba(52,211,153,0.5)] active:scale-95 transition-all disabled:opacity-0 disabled:scale-90 flex items-center gap-3 cursor-pointer"
-      >
-        <Fingerprint className="w-6 h-6" />
-        Xác nhận Chấm công
-      </button>
+      {videoSource === 'webcam' && (
+        <button
+          onClick={() => triggerScan(false)}
+          disabled={status !== 'idle'}
+          className="absolute bottom-24 z-40 bg-[#34d399] text-black px-10 py-4 rounded-full font-bold font-mono tracking-[2px] uppercase shadow-[0_0_30px_rgba(52,211,153,0.3)] hover:bg-[#2dbb86] hover:scale-105 hover:shadow-[0_0_40px_rgba(52,211,153,0.5)] active:scale-95 transition-all disabled:opacity-0 disabled:scale-90 flex items-center gap-3 cursor-pointer"
+        >
+          <Fingerprint className="w-6 h-6" />
+          Xác nhận Chấm công
+        </button>
+      )}
 
       <AnimatePresence>
         {status === 'success' && (
@@ -508,7 +555,7 @@ export default function CameraView() {
             <div className="bg-[#15171c]/95 backdrop-blur-md text-white px-12 py-8 flex flex-col items-center gap-4 border-2 border-[#34d399] rounded-2xl shadow-[0_20px_60px_rgba(52,211,153,0.3)]">
               <ShieldCheck className="w-16 h-16 text-[#34d399]" />
               <div className="text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
+                <div className="flex items-center justify-center gap-2 mb-2 flex-wrap">
                   {attendanceInfo?.check_type === 'Check-out' ? (
                     <span className="bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40 px-3 py-0.5 rounded-full font-mono text-xs font-bold uppercase inline-flex items-center gap-1.5">
                       <LogOut className="w-3.5 h-3.5" /> Check-out Tan Ca ({attendanceInfo.work_hours}h)
@@ -516,6 +563,17 @@ export default function CameraView() {
                   ) : (
                     <span className="bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 px-3 py-0.5 rounded-full font-mono text-xs font-bold uppercase inline-flex items-center gap-1.5">
                       <LogIn className="w-3.5 h-3.5" /> Check-in Vào Ca • {attendanceInfo?.status || 'Đúng giờ'}
+                    </span>
+                  )}
+                  {telemetry?.mask && (
+                    <span
+                      className={`px-3 py-0.5 rounded-full font-mono text-xs font-bold uppercase border ${
+                        telemetry.mask.is_masked
+                          ? 'bg-[#38bdf8]/20 text-[#38bdf8] border-[#38bdf8]/40'
+                          : 'bg-[#64748b]/20 text-[#94a3b8] border-[#64748b]/40'
+                      }`}
+                    >
+                      {telemetry.mask.label}
                     </span>
                   )}
                 </div>
@@ -526,6 +584,11 @@ export default function CameraView() {
                   {user?.name}{' '}
                   <span className="text-[#64748b] ml-2">| {user?.student_code}</span>
                 </p>
+                {detectedFacesList.length > 1 && (
+                  <p className="text-[#38bdf8] font-mono text-xs mt-1">
+                    👥 Phát hiện đồng thời {detectedFacesList.length} người trong khung hình
+                  </p>
+                )}
                 {telemetry && (
                   <div className="mt-3 flex items-center justify-center gap-3 text-[11px] font-mono text-[#94a3b8]">
                     <span className="bg-[#0a0b0d] px-2.5 py-1 rounded border border-[#2d2d2d] text-[#34d399]">
